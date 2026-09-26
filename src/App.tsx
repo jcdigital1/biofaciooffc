@@ -14,6 +14,8 @@ import {
   updateDoc,
   deleteDoc,
   serverTimestamp,
+  query,
+  where,
 } from 'firebase/firestore';
 import { UserProfile, BioTemplate, BioProject, NicheInfo } from './types';
 import { FirebaseStatusBanner } from './components/FirebaseStatusBanner';
@@ -107,19 +109,21 @@ function MainApp() {
     return () => unsubTemplates();
   }, [currentUser]);
 
-  // Sync projects real-time for current user or admin
+  // Sync projects real-time with scoped query (Admin sees all, client sees only own projects)
   useEffect(() => {
     if (!currentUser || !db) return;
 
+    const projectsRef = collection(db, 'projects');
+    const projectsQuery = isAdmin
+      ? projectsRef
+      : query(projectsRef, where('ownerUid', '==', currentUser.uid));
+
     const unsubProjects = onSnapshot(
-      collection(db, 'projects'),
+      projectsQuery,
       (snapshot) => {
         const list: BioProject[] = [];
         snapshot.forEach((d) => {
-          const p = d.data() as BioProject;
-          if (isAdmin || p.ownerUid === currentUser.uid) {
-            list.push(p);
-          }
+          list.push(d.data() as BioProject);
         });
         setProjects(list);
       },
@@ -240,6 +244,8 @@ function MainApp() {
     const duplicated: BioProject = {
       ...project,
       id: newId,
+      projectId: newId,
+      ownerUid: currentUser.uid,
       name: `${project.name} (Cópia)`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
