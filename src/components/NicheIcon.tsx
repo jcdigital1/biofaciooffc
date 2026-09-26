@@ -45,9 +45,10 @@ export const NICHE_EMOJIS: Record<string, string> = {
   'cardapios-digital': '📱',
   'saude-bem-estar': '📱',
 
-  // 🎨 Portfólio & Criadores
+  // 🎨 Portfólios
   creators: '🎨',
   'portfolio-criadores': '🎨',
+  portfolios: '🎨',
 };
 
 export const NicheIcon: React.FC<NicheIconProps> = ({ name, className = '', size = 34 }) => {

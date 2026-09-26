@@ -66,7 +66,7 @@ export const OFFICIAL_NICHES: NicheInfo[] = [
   },
   {
     id: 'portfolio-criadores',
-    name: 'Portfólio & Criadores',
+    name: 'Portfólios',
     slug: 'portfolio-criadores',
     description: 'Designers, fotógrafos, videomakers, influenciadores e artistas',
     iconName: 'creators',
@@ -81,15 +81,19 @@ export function matchTemplateNiche(templateNicheId: string, targetNicheId: strin
   if (templateNicheId === targetNicheId) return true;
   if (targetNicheId === 'cardapios-digital' && templateNicheId === 'saude-bem-estar') return true;
   if (targetNicheId === 'saude-bem-estar' && templateNicheId === 'cardapios-digital') return true;
+  if (targetNicheId === 'portfolio-criadores' && (templateNicheId === 'portfolio-criadores' || templateNicheId === 'portfolios')) return true;
   return false;
 }
 
 /**
- * Normalizes niche display name, safely handling legacy 'saude-bem-estar'.
+ * Normalizes niche display name, safely handling legacy names like 'saude-bem-estar' and 'Portfólio & Criadores'.
  */
 export function getNormalizedNicheName(nicheId: string, currentName?: string): string {
   if (nicheId === 'cardapios-digital' || nicheId === 'saude-bem-estar') {
     return 'Cardápios Digital';
+  }
+  if (nicheId === 'portfolio-criadores' || currentName === 'Portfólio & Criadores' || currentName === 'portfolio-criadores') {
+    return 'Portfólios';
   }
   const found = OFFICIAL_NICHES.find((n) => n.id === nicheId);
   return found?.name || currentName || nicheId;
