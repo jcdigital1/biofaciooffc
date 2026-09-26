@@ -3,7 +3,7 @@ import { OFFICIAL_NICHES } from '../../constants/niches';
 import { parseBioSiteHtml } from '../../lib/htmlParser';
 import { preparePreviewHtml } from '../../lib/bioPreview';
 import { BioTemplate, EditorField, FieldType } from '../../types';
-import { Sparkles, CheckCircle, Eye, Sliders, Save, UploadCloud, AlertCircle, ArrowLeft, RefreshCw } from 'lucide-react';
+import { Sparkles, CheckCircle2, Eye, Sliders, Save, UploadCloud, AlertCircle, ArrowLeft, RefreshCw, Palette } from 'lucide-react';
 
 interface AdminImportBioSiteProps {
   onSaveTemplate: (template: BioTemplate, publishDirectly: boolean) => Promise<void>;
@@ -21,15 +21,21 @@ export const AdminImportBioSite: React.FC<AdminImportBioSiteProps> = ({
   // Analysis result state
   const [analyzed, setAnalyzed] = useState(false);
   const [detectedFields, setDetectedFields] = useState<EditorField[]>([]);
+  const [detectedColors, setDetectedColors] = useState<any[]>([]);
   const [cleanedSourceHtml, setCleanedSourceHtml] = useState('');
   const [extractedTheme, setExtractedTheme] = useState<any>(null);
+
+  // Saving states
   const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const selectedNiche = OFFICIAL_NICHES.find((n) => n.id === selectedNicheId) || OFFICIAL_NICHES[0];
 
   const handleAnalyze = () => {
     setErrorMsg(null);
+    setSaveSuccess(null);
+
     if (!modelName.trim()) {
       setErrorMsg('Informe o nome do modelo.');
       return;
@@ -42,6 +48,7 @@ export const AdminImportBioSite: React.FC<AdminImportBioSiteProps> = ({
     try {
       const result = parseBioSiteHtml(htmlCode);
       setDetectedFields(result.fields);
+      setDetectedColors(result.colors);
       setCleanedSourceHtml(result.cleanedHtml);
       setExtractedTheme(result.theme);
       setAnalyzed(true);
@@ -77,10 +84,26 @@ export const AdminImportBioSite: React.FC<AdminImportBioSiteProps> = ({
   const handleSave = async (publishDirectly: boolean) => {
     setSaving(true);
     setErrorMsg(null);
+    setSaveSuccess(null);
 
     try {
-      const templateId = `tpl-${selectedNicheId}-${Date.now()}`;
-      const activeFields = detectedFields.filter((f) => f.enabled !== false);
+      const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const templateId = `tpl_${selectedNiche.id}_${uniqueSuffix}`;
+
+      // Clean active fields to ensure no undefined properties for Firestore
+      const activeFields = detectedFields
+        .filter((f) => f.enabled !== false)
+        .map((f) => ({
+          key: f.key,
+          label: f.label || f.key,
+          type: f.type || 'text',
+          defaultValue: f.defaultValue ?? '',
+          currentValue: f.currentValue ?? '',
+          selector: f.selector || '',
+          attribute: f.attribute || '',
+          cssVarName: f.cssVarName || '',
+          enabled: true,
+        }));
 
       const newTemplate: BioTemplate = {
         templateId,
@@ -92,15 +115,24 @@ export const AdminImportBioSite: React.FC<AdminImportBioSiteProps> = ({
         sourceHtml: cleanedSourceHtml || htmlCode,
         editorSchema: {
           fields: activeFields,
+          colors: detectedColors,
         },
-        themeMetadata: extractedTheme,
+        themeMetadata: extractedTheme || {},
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
+      // Await confirmation from Firestore before informing success!
       await onSaveTemplate(newTemplate, publishDirectly);
+
+      setSaveSuccess(
+        publishDirectly
+          ? 'MODELO SALVO E PUBLICADO COM SUCESSO! O modelo já faz parte do catálogo global do Bio Fácil e está visível para todos os clientes.'
+          : 'MODELO SALVO COMO RASCUNHO COM SUCESSO! Disponível na aba Modelos para revisão.'
+      );
     } catch (err: any) {
-      setErrorMsg('Erro ao salvar modelo: ' + (err?.message || 'Falha no Firestore'));
+      console.error('Erro ao salvar modelo:', err);
+      setErrorMsg('Não foi possível salvar o modelo no Firestore: ' + (err?.message || 'Falha de gravação'));
     } finally {
       setSaving(false);
     }
@@ -117,13 +149,13 @@ export const AdminImportBioSite: React.FC<AdminImportBioSiteProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-[#F5FFF8]">Importar BioSite</h2>
+          <h2 className="text-xl font-bold text-[#F5FFF8]">Importar BioSite para o Catálogo Global</h2>
           <p className="text-xs text-[#87938B]">
-            Cole o código HTML do biosite para análise semântica imediata e cadastro de campos dinâmicos.
+            Cole o código HTML do biosite para análise semântica imediata e cadastro permanente no Firestore.
           </p>
         </div>
 
-        {analyzed && (
+        {analyzed && !saveSuccess && (
           <button
             onClick={() => setAnalyzed(false)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-[#111713] hover:bg-[#18221c] border border-[#1e2a22] text-[#87938B] hover:text-[#F5FFF8] text-xs font-semibold rounded-xl transition cursor-pointer"
@@ -141,7 +173,38 @@ export const AdminImportBioSite: React.FC<AdminImportBioSiteProps> = ({
         </div>
       )}
 
-      {!analyzed ? (
+      {saveSuccess && (
+        <div className="bg-[#0B0F0D] border border-[#36FF88]/40 rounded-2xl p-6 sm:p-8 text-center space-y-4 shadow-2xl">
+          <div className="w-16 h-16 mx-auto rounded-full bg-[#36FF88]/10 border border-[#36FF88]/30 flex items-center justify-center text-[#36FF88] shadow-[0_0_25px_rgba(54,255,136,0.3)]">
+            <CheckCircle2 className="w-8 h-8" />
+          </div>
+          <h3 className="text-xl font-bold text-white tracking-tight">MODELO SALVO COM SUCESSO!</h3>
+          <p className="text-xs text-[#87938B] max-w-lg mx-auto leading-relaxed">
+            {saveSuccess}
+          </p>
+          <div className="pt-2 flex items-center justify-center gap-3">
+            <button
+              onClick={onCancel}
+              className="px-5 py-2.5 bg-[#36FF88] hover:bg-[#00E86B] text-[#050706] font-extrabold text-xs rounded-xl shadow-[0_0_15px_rgba(54,255,136,0.3)] transition cursor-pointer"
+            >
+              VER MODELOS NO CATÁLOGO
+            </button>
+            <button
+              onClick={() => {
+                setModelName('');
+                setHtmlCode('');
+                setAnalyzed(false);
+                setSaveSuccess(null);
+              }}
+              className="px-4 py-2.5 bg-[#111713] hover:bg-[#18221c] border border-[#1e2a22] text-[#87938B] hover:text-[#F5FFF8] text-xs font-semibold rounded-xl transition cursor-pointer"
+            >
+              Importar Outro Modelo
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!saveSuccess && !analyzed ? (
         /* STEP 1: FORM ONLY */
         <div className="bg-[#0B0F0D] border border-[#18221c] rounded-2xl p-6 sm:p-8 space-y-5 shadow-2xl">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -211,7 +274,7 @@ export const AdminImportBioSite: React.FC<AdminImportBioSiteProps> = ({
             </button>
           </div>
         </div>
-      ) : (
+      ) : !saveSuccess && (
         /* STEP 2: SPLIT VIEW - PREVIEW REAL + CAMPOS DETECTADOS */
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left Column: Detected Fields Config */}
@@ -227,6 +290,15 @@ export const AdminImportBioSite: React.FC<AdminImportBioSiteProps> = ({
                     Ative, renomeie ou ajuste os tipos de campos identificados no código.
                   </p>
                 </div>
+
+                {detectedColors.length > 0 && (
+                  <div className="flex items-center gap-1.5 bg-[#111713] px-2.5 py-1 rounded-lg border border-[#1e2a22]">
+                    <Palette className="w-3.5 h-3.5 text-[#36FF88]" />
+                    <span className="text-[11px] font-mono text-[#87938B]">
+                      {detectedColors.length} cores mapeadas
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="mt-4 max-h-[560px] overflow-y-auto space-y-3 pr-1">
@@ -265,7 +337,7 @@ export const AdminImportBioSite: React.FC<AdminImportBioSiteProps> = ({
                         <option value="instagram">Instagram</option>
                         <option value="link">Link Genérico</option>
                         <option value="maps">Google Maps</option>
-                        <option value="color">Cor (CSS Var)</option>
+                        <option value="color">Cor</option>
                       </select>
                     </div>
 
@@ -309,12 +381,12 @@ export const AdminImportBioSite: React.FC<AdminImportBioSiteProps> = ({
                   {saving ? (
                     <span className="flex items-center gap-1.5">
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>SALVANDO...</span>
+                      <span>GRAVANDO NO FIREBASE...</span>
                     </span>
                   ) : (
                     <>
                       <UploadCloud className="w-4 h-4" />
-                      <span>SALVAR & PUBLICAR MODELO</span>
+                      <span>SALVAR & PUBLICAR NO CATÁLOGO</span>
                     </>
                   )}
                 </button>
@@ -335,7 +407,6 @@ export const AdminImportBioSite: React.FC<AdminImportBioSiteProps> = ({
 
               {/* Mobile Device Mockup Frame */}
               <div className="w-[340px] h-[580px] bg-[#050706] rounded-[36px] border-4 border-[#1e2a22] overflow-hidden shadow-2xl relative flex flex-col">
-                {/* Notch */}
                 <div className="w-28 h-4 bg-[#111713] mx-auto rounded-b-xl shrink-0 z-20"></div>
 
                 <iframe

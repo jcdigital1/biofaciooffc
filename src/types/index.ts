@@ -34,6 +34,7 @@ export type FieldType =
   | 'color' 
   | 'button'
   | 'link'
+  | 'service'
   | 'gallery';
 
 export interface EditorField {
@@ -49,13 +50,35 @@ export interface EditorField {
   enabled?: boolean;
 }
 
-export interface EditorSchema {
-  fields: EditorField[];
+export type ColorRole =
+  | 'primary'
+  | 'secondary'
+  | 'background'
+  | 'surface'
+  | 'text'
+  | 'muted'
+  | 'accent'
+  | 'detail';
+
+export interface ColorItem {
+  key: string;
+  label: string;
+  role: ColorRole;
+  defaultValue: string;
+  currentValue: string;
+  cssVarName?: string;
 }
 
 export interface ThemeMetadata {
   cssVariables: Record<string, string>;
+  colors?: ColorItem[];
+  originalColors?: Record<string, string>;
   fontFamily?: string;
+}
+
+export interface EditorSchema {
+  fields: EditorField[];
+  colors?: ColorItem[];
 }
 
 export interface BioTemplate {

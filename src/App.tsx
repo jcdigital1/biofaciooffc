@@ -15,7 +15,6 @@ import {
   deleteDoc,
   serverTimestamp,
 } from 'firebase/firestore';
-import { ensureDefaultTemplates } from './lib/initTemplates';
 import { UserProfile, BioTemplate, BioProject, NicheInfo } from './types';
 import { FirebaseStatusBanner } from './components/FirebaseStatusBanner';
 import { AuthScreen } from './components/AuthScreen';
@@ -36,12 +35,19 @@ import { MyProjectsModal } from './components/ClientHome/MyProjectsModal';
 import { BioEditor } from './components/Editor/BioEditor';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 
+function cleanForFirestore<T>(data: T): T {
+  return JSON.parse(JSON.stringify(data, (_, value) => (value === undefined ? null : value)));
+}
+
 function MainApp() {
   const { currentUser, userProfile, isAdmin, isApproved, loading } = useAuth();
 
   // Firestore real-time collections state
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [templates, setTemplates] = useState<BioTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
+
   const [projects, setProjects] = useState<BioProject[]>([]);
 
   // Navigation states
@@ -54,13 +60,6 @@ function MainApp() {
   const [activeEditingTemplate, setActiveEditingTemplate] = useState<BioTemplate | null>(null);
   const [activeEditingProject, setActiveEditingProject] = useState<BioProject | null>(null);
   const [isMyProjectsOpen, setIsMyProjectsOpen] = useState(false);
-
-  // Initialize templates non-destructively once Firebase is connected
-  useEffect(() => {
-    if (isFirebaseConnected && db) {
-      ensureDefaultTemplates();
-    }
-  }, []);
 
   // Sync users real-time when admin is logged in
   useEffect(() => {
@@ -81,9 +80,12 @@ function MainApp() {
     return () => unsubUsers();
   }, [currentUser, isAdmin]);
 
-  // Sync templates real-time
+  // Sync global templates real-time from Firestore (the only source of truth)
   useEffect(() => {
     if (!currentUser || !db) return;
+
+    setTemplatesLoading(true);
+    setTemplatesError(null);
 
     const unsubTemplates = onSnapshot(
       collection(db, 'templates'),
@@ -93,8 +95,13 @@ function MainApp() {
           list.push(d.data() as BioTemplate);
         });
         setTemplates(list);
+        setTemplatesLoading(false);
       },
-      (err) => console.warn('Erro ao escutar coleção templates:', err)
+      (err) => {
+        console.error('Erro ao buscar modelos do Firestore:', err);
+        setTemplatesError('NÃO FOI POSSÍVEL CARREGAR OS MODELOS.');
+        setTemplatesLoading(false);
+      }
     );
 
     return () => unsubTemplates();
@@ -166,16 +173,18 @@ function MainApp() {
     });
   };
 
-  // Admin template actions
+  // Admin template actions - Permanent save to Firestore
   const handleSaveImportedTemplate = async (template: BioTemplate, publishDirectly: boolean) => {
-    if (!db) return;
-    await setDoc(doc(db, 'templates', template.templateId), {
+    if (!db) throw new Error('Banco Firestore indisponível');
+
+    const sanitizedData = cleanForFirestore({
       ...template,
       status: publishDirectly ? 'published' : 'draft',
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
-    setAdminTab('templates');
+
+    await setDoc(doc(db, 'templates', template.templateId), sanitizedData);
   };
 
   const handleToggleTemplateStatus = async (templateId: string, currentStatus: string) => {
@@ -192,9 +201,9 @@ function MainApp() {
     await deleteDoc(doc(db, 'templates', templateId));
   };
 
-  // Client project actions
+  // Client project actions - Saves only in projects/{projectId}, NEVER in templates
   const handleSaveProject = async (projectData: Partial<BioProject>): Promise<BioProject> => {
-    if (!db || !currentUser) throw new Error('Não autenticado');
+    if (!db || !currentUser) throw new Error('Usuário não autenticado');
 
     const projectId = projectData.id || `proj-${Date.now()}`;
     const fullProject: BioProject = {
@@ -202,7 +211,7 @@ function MainApp() {
       ownerUid: currentUser.uid,
       templateId: projectData.templateId || activeEditingTemplate?.templateId || '',
       templateVersion: projectData.templateVersion || 1,
-      templateName: projectData.templateName || activeEditingTemplate?.name || '',
+      templateName: projectData.templateName || activeEditingTemplate?.name || 'BioSite',
       nicheId: projectData.nicheId || activeEditingTemplate?.nicheId || '',
       name: projectData.name || 'Meu BioSite',
       values: projectData.values || {},
@@ -212,11 +221,12 @@ function MainApp() {
       updatedAt: new Date().toISOString(),
     };
 
-    await setDoc(doc(db, 'projects', projectId), {
+    const sanitizedProject = cleanForFirestore({
       ...fullProject,
       updatedAt: serverTimestamp(),
     });
 
+    await setDoc(doc(db, 'projects', projectId), sanitizedProject);
     return fullProject;
   };
 
@@ -230,7 +240,7 @@ function MainApp() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    await setDoc(doc(db, 'projects', newId), duplicated);
+    await setDoc(doc(db, 'projects', newId), cleanForFirestore(duplicated));
   };
 
   const handleDeleteProject = async (projectId: string) => {
@@ -320,6 +330,21 @@ function MainApp() {
             />
 
             <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+              {templatesError && (
+                <div className="mb-6 p-4 rounded-xl bg-red-950/40 border border-red-500/40 flex items-center justify-between gap-3 text-red-300 text-xs">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                    <span>{templatesError}</span>
+                  </div>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="px-3 py-1 bg-red-900/50 hover:bg-red-800/60 rounded-lg text-white font-bold cursor-pointer"
+                  >
+                    TENTAR NOVAMENTE
+                  </button>
+                </div>
+              )}
+
               {adminTab === 'overview' && (
                 <AdminOverview
                   users={users}
@@ -360,7 +385,7 @@ function MainApp() {
               {adminTab === 'niches' && (
                 <AdminNiches
                   templates={templates}
-                  onSelectNiche={(nicheId) => {
+                  onSelectNiche={() => {
                     setAdminTab('templates');
                   }}
                 />
@@ -381,6 +406,21 @@ function MainApp() {
             />
 
             <main className="flex-1">
+              {templatesError && (
+                <div className="max-w-4xl mx-auto mt-6 p-4 rounded-xl bg-red-950/40 border border-red-500/40 flex items-center justify-between gap-3 text-red-300 text-xs">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                    <span>{templatesError}</span>
+                  </div>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="px-3 py-1 bg-red-900/50 hover:bg-red-800/60 rounded-lg text-white font-bold cursor-pointer"
+                  >
+                    TENTAR NOVAMENTE
+                  </button>
+                </div>
+              )}
+
               {!selectedNiche ? (
                 <NicheSelector
                   onSelectNiche={(niche) => setSelectedNiche(niche)}
