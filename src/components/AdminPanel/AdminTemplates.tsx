@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BioTemplate } from '../../types';
-import { OFFICIAL_NICHES, matchTemplateNiche, getNormalizedNicheName } from '../../constants/niches';
+import { OFFICIAL_NICHES } from '../../constants/niches';
 import { Search, Eye, CheckCircle2, FileEdit, Trash2, PlusCircle, Globe2, Archive } from 'lucide-react';
 import { preparePreviewHtml } from '../../lib/bioPreview';
 
@@ -24,7 +24,7 @@ export const AdminTemplates: React.FC<AdminTemplatesProps> = ({
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const filteredTemplates = templates.filter((tpl) => {
-    if (selectedNiche !== 'all' && !matchTemplateNiche(tpl.nicheId, selectedNiche)) return false;
+    if (selectedNiche !== 'all' && tpl.nicheId !== selectedNiche) return false;
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
       const matchName = tpl.name?.toLowerCase().includes(q);
@@ -84,7 +84,7 @@ export const AdminTemplates: React.FC<AdminTemplatesProps> = ({
         >
           <option value="all">Todos os Nichos ({templates.length})</option>
           {OFFICIAL_NICHES.map((n) => {
-            const count = templates.filter((t) => matchTemplateNiche(t.nicheId, n.id)).length;
+            const count = templates.filter((t) => t.nicheId === n.id).length;
             return (
               <option key={n.id} value={n.id}>
                 {n.name} ({count})
@@ -129,7 +129,7 @@ export const AdminTemplates: React.FC<AdminTemplatesProps> = ({
                   {/* Badges on top */}
                   <div className="absolute top-3 left-3 flex items-center gap-1.5">
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#070b09]/90 text-[#36FF88] border border-[#36FF88]/30 backdrop-blur-md">
-                      {getNormalizedNicheName(template.nicheId, template.nicheName)}
+                      {template.nicheName}
                     </span>
                   </div>
 

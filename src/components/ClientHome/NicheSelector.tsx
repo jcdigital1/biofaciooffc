@@ -1,5 +1,5 @@
 import React from 'react';
-import { OFFICIAL_NICHES, matchTemplateNiche } from '../../constants/niches';
+import { OFFICIAL_NICHES } from '../../constants/niches';
 import { NicheIcon } from '../NicheIcon';
 import { NicheInfo, BioTemplate } from '../../types';
 import { ArrowRight, Sparkles } from 'lucide-react';
@@ -33,7 +33,7 @@ export const NicheSelector: React.FC<NicheSelectorProps> = ({ onSelectNiche, tem
         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 sm:gap-5">
           {OFFICIAL_NICHES.map((niche) => {
             const count = templates.filter(
-              (t) => matchTemplateNiche(t.nicheId, niche.id) && t.status === 'published'
+              (t) => t.nicheId === niche.id && t.status === 'published'
             ).length;
 
             return (
@@ -43,9 +43,9 @@ export const NicheSelector: React.FC<NicheSelectorProps> = ({ onSelectNiche, tem
                 className="group relative bg-[#0B0F0D] hover:bg-[#111713] border border-[#18221c] hover:border-[#36FF88]/50 rounded-2xl p-4 sm:p-5 flex flex-col justify-between transition-all duration-200 cursor-pointer hover:-translate-y-1 hover:shadow-[0_10px_30px_rgba(0,0,0,0.8),0_0_25px_rgba(54,255,136,0.15)]"
               >
                 <div>
-                  {/* Emoji Icon container */}
-                  <div className="mx-auto mb-3.5 flex items-center justify-center">
-                    <NicheIcon name={niche.iconName} size={34} />
+                  {/* 3D Icon container */}
+                  <div className="w-14 h-14 sm:w-16 sm:h-16 mx-auto mb-3.5 rounded-2xl bg-[#070b09] border border-[#1e2a22] flex items-center justify-center p-2.5 group-hover:scale-105 group-hover:border-[#36FF88]/40 transition duration-200 shadow-inner">
+                    <NicheIcon name={niche.iconName} size={46} />
                   </div>
 
                   <h3 className="font-extrabold text-sm sm:text-base text-[#F5FFF8] text-center group-hover:text-[#36FF88] transition duration-150">

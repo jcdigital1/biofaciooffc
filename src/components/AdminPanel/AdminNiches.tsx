@@ -1,5 +1,5 @@
 import React from 'react';
-import { OFFICIAL_NICHES, matchTemplateNiche } from '../../constants/niches';
+import { OFFICIAL_NICHES } from '../../constants/niches';
 import { BioTemplate } from '../../types';
 import { NicheIcon } from '../NicheIcon';
 import { Layers, ArrowRight } from 'lucide-react';
@@ -21,7 +21,7 @@ export const AdminNiches: React.FC<AdminNichesProps> = ({ templates, onSelectNic
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {OFFICIAL_NICHES.map((niche, index) => {
-          const nicheTemplates = templates.filter((t) => matchTemplateNiche(t.nicheId, niche.id));
+          const nicheTemplates = templates.filter((t) => t.nicheId === niche.id);
           const publishedCount = nicheTemplates.filter((t) => t.status === 'published').length;
 
           return (
@@ -31,8 +31,8 @@ export const AdminNiches: React.FC<AdminNichesProps> = ({ templates, onSelectNic
             >
               <div>
                 <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center justify-center">
-                    <NicheIcon name={niche.iconName} size={34} />
+                  <div className="w-14 h-14 rounded-2xl bg-[#111713] border border-[#1e2a22] flex items-center justify-center p-2 group-hover:scale-105 transition">
+                    <NicheIcon name={niche.iconName} size={42} />
                   </div>
                   <span className="font-mono text-xs text-[#505f56] font-bold">
                     #{String(index + 1).padStart(2, '0')}

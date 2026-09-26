@@ -1090,26 +1090,26 @@ export const INITIAL_TEMPLATES: BioTemplate[] = [
     <div class="bot-header">
       <img class="bot-avatar" data-bio-image="logo" src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&auto=format&fit=crop&q=80" alt="Assistente">
       <h1 class="bot-name" data-bio-text="title_main">Atendimento Express 24h</h1>
-      <div class="bot-status"><span class="dot"></span> <span data-bio-text="bot_status">Online agora para te ajudar</span></div>
+      <div class="bot-status"><span class="dot"></span> Online agora para te ajudar</div>
     </div>
 
-    <div class="chat-box" id="bio-chat-messages">
+    <div class="chat-box">
       <div class="bubble bubble-bot" data-bio-text="subtitle">
         Olá! Sou o assistente automático. Como posso agilizar seu atendimento hoje? Escolha uma das opções abaixo:
       </div>
     </div>
 
-    <div class="actions-grid" id="bio-chat-actions">
+    <div class="actions-grid">
       <a class="action-btn" data-bio-link="whatsapp" href="https://wa.me/5511944444444?text=Ol%C3%A1!%20Gostaria%20de%20saber%20valores%20e%20planos.">
-        <span data-bio-text="opt_1_label">💰 1. Quero saber valores e planos</span>
+        <span>💰 1. Quero saber valores e planos</span>
         <span>→</span>
       </a>
       <a class="action-btn" data-bio-link="instagram" href="https://wa.me/5511944444444?text=Ol%C3%A1!%20Quero%20falar%20com%20um%20especialista.">
-        <span data-bio-text="opt_2_label">👨‍💻 2. Falar com atendente humano</span>
+        <span>👨‍💻 2. Falar com atendente humano</span>
         <span>→</span>
       </a>
       <a class="action-btn" data-bio-link="maps_link" href="https://maps.google.com">
-        <span data-bio-text="opt_3_label">📍 3. Endereço e rotas de acesso</span>
+        <span>📍 3. Endereço e rotas de acesso</span>
         <span>→</span>
       </a>
     </div>
@@ -1124,14 +1124,9 @@ export const INITIAL_TEMPLATES: BioTemplate[] = [
       fields: [
         { key: 'logo', label: 'Foto / Avatar do Assistente', type: 'logo', selector: '[data-bio-image="logo"]', attribute: 'src', enabled: true },
         { key: 'title_main', label: 'Nome do Assistente / Canal', type: 'text', selector: '[data-bio-text="title_main"]', attribute: 'textContent', enabled: true },
-        { key: 'bot_status', label: 'Status do Assistente', type: 'text', selector: '[data-bio-text="bot_status"]', attribute: 'textContent', enabled: true, defaultValue: 'Online agora para te ajudar' },
         { key: 'subtitle', label: 'Mensagem de Abertura do Chat', type: 'textarea', selector: '[data-bio-text="subtitle"]', attribute: 'textContent', enabled: true },
-        { key: 'opt_1_label', label: 'Texto Opção 1', type: 'text', selector: '[data-bio-text="opt_1_label"]', attribute: 'textContent', enabled: true, defaultValue: '💰 1. Quero saber valores e planos' },
-        { key: 'whatsapp', label: 'WhatsApp Principal (Opção 1)', type: 'whatsapp', selector: '[data-bio-link="whatsapp"]', attribute: 'href', enabled: true },
-        { key: 'opt_2_label', label: 'Texto Opção 2', type: 'text', selector: '[data-bio-text="opt_2_label"]', attribute: 'textContent', enabled: true, defaultValue: '👨‍💻 2. Falar com atendente humano' },
-        { key: 'instagram', label: 'Link Atendente Humano (Opção 2)', type: 'whatsapp', selector: '[data-bio-link="instagram"]', attribute: 'href', enabled: true },
-        { key: 'opt_3_label', label: 'Texto Opção 3', type: 'text', selector: '[data-bio-text="opt_3_label"]', attribute: 'textContent', enabled: true, defaultValue: '📍 3. Endereço e rotas de acesso' },
-        { key: 'maps_link', label: 'Link de Localização (Opção 3)', type: 'maps', selector: '[data-bio-link="maps_link"]', attribute: 'href', enabled: true },
+        { key: 'whatsapp', label: 'WhatsApp Principal', type: 'whatsapp', selector: '[data-bio-link="whatsapp"]', attribute: 'href', enabled: true },
+        { key: 'maps_link', label: 'Link de Localização', type: 'maps', selector: '[data-bio-link="maps_link"]', attribute: 'href', enabled: true },
         { key: 'address_text', label: 'Rodapé Informativo', type: 'text', selector: '[data-bio-text="address_text"]', attribute: 'textContent', enabled: true },
         { key: 'css_--primary', label: 'Cor de Destaque Bot', type: 'color', cssVarName: '--primary', defaultValue: '#38bdf8', enabled: true },
       ],

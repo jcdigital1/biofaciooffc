@@ -28,9 +28,6 @@ import {
   ChevronRight,
   RefreshCw,
   FolderCheck,
-  Bot,
-  Plus,
-  Trash2,
 } from 'lucide-react';
 
 interface BioEditorProps {
@@ -91,16 +88,7 @@ export const BioEditor: React.FC<BioEditorProps> = ({
   });
 
   // Active view & Contextual editing
-  const isChatbotModel = useMemo(() => {
-    return (
-      template.nicheId === 'modelos-chatbot' ||
-      template.nicheName?.toLowerCase().includes('chatbot') ||
-      template.templateId?.toLowerCase().includes('chatbot')
-    );
-  }, [template]);
-
-  const [activeTab, setActiveTab] = useState<'preview' | 'chatbot' | 'colors' | 'allFields'>('preview');
-  const [previewInteractionMode, setPreviewInteractionMode] = useState<'edit' | 'test'>('edit');
+  const [activeTab, setActiveTab] = useState<'preview' | 'colors' | 'allFields'>('preview');
   const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null);
   const [selectedFieldData, setSelectedFieldData] = useState<{
     key: string;
@@ -111,111 +99,6 @@ export const BioEditor: React.FC<BioEditorProps> = ({
   } | null>(null);
 
   const [deviceView, setDeviceView] = useState<'mobile' | 'desktop'>('mobile');
-
-  // Preview interaction mode handler (Modo Editar vs Modo Testar)
-  const handleSetPreviewInteractionMode = (mode: 'edit' | 'test') => {
-    setPreviewInteractionMode(mode);
-    if (iframeRef.current?.contentWindow) {
-      iframeRef.current.contentWindow.postMessage(
-        {
-          type: 'BIO_SET_PREVIEW_MODE',
-          mode,
-        },
-        '*'
-      );
-    }
-  };
-
-  // Add a new dynamic chatbot message bubble
-  const handleAddChatbotMessage = () => {
-    const nextMsgIndex = Object.keys(fieldValues).filter((k) => k.startsWith('bot_msg_')).length + 2;
-    const newKey = `bot_msg_${nextMsgIndex}`;
-    const defaultText = `Mensagem ${nextMsgIndex}: Como mais posso te ajudar?`;
-
-    setFieldValues((prev) => ({ ...prev, [newKey]: defaultText }));
-    setSaveStatus('unsaved');
-
-    if (iframeRef.current?.contentWindow) {
-      iframeRef.current.contentWindow.postMessage(
-        {
-          type: 'BIO_CHAT_ADD_MESSAGE',
-          key: newKey,
-          text: defaultText,
-        },
-        '*'
-      );
-    }
-  };
-
-  // Remove dynamic chatbot message bubble
-  const handleRemoveChatbotMessage = (key: string) => {
-    setFieldValues((prev) => {
-      const copy = { ...prev };
-      delete copy[key];
-      return copy;
-    });
-    setSaveStatus('unsaved');
-
-    if (iframeRef.current?.contentWindow) {
-      iframeRef.current.contentWindow.postMessage(
-        {
-          type: 'BIO_CHAT_REMOVE_ELEMENT',
-          key,
-        },
-        '*'
-      );
-    }
-  };
-
-  // Add a new dynamic chatbot action button / option
-  const handleAddChatbotOption = () => {
-    const nextOptIndex = Object.keys(fieldValues).filter((k) => k.startsWith('bot_opt_') && k.endsWith('_label')).length + 4;
-    const labelKey = `bot_opt_${nextOptIndex}_label`;
-    const urlKey = `bot_opt_${nextOptIndex}_url`;
-    const defaultLabel = `💬 ${nextOptIndex}. Nova Opção de Atendimento`;
-    const defaultUrl = fieldValues['whatsapp'] || 'https://wa.me/';
-
-    setFieldValues((prev) => ({
-      ...prev,
-      [labelKey]: defaultLabel,
-      [urlKey]: defaultUrl,
-    }));
-    setSaveStatus('unsaved');
-
-    if (iframeRef.current?.contentWindow) {
-      iframeRef.current.contentWindow.postMessage(
-        {
-          type: 'BIO_CHAT_ADD_OPTION',
-          labelKey,
-          linkKey: urlKey,
-          label: defaultLabel,
-          url: defaultUrl,
-        },
-        '*'
-      );
-    }
-  };
-
-  // Remove dynamic chatbot action button / option
-  const handleRemoveChatbotOption = (labelKey: string, urlKey?: string) => {
-    setFieldValues((prev) => {
-      const copy = { ...prev };
-      delete copy[labelKey];
-      if (urlKey) delete copy[urlKey];
-      return copy;
-    });
-    setSaveStatus('unsaved');
-
-    if (iframeRef.current?.contentWindow) {
-      iframeRef.current.contentWindow.postMessage(
-        {
-          type: 'BIO_CHAT_REMOVE_ELEMENT',
-          key: labelKey,
-        },
-        '*'
-      );
-    }
-  };
 
   // Save states: 'idle' | 'unsaved' | 'saving' | 'saved' | 'error'
   const [saveStatus, setSaveStatus] = useState<'idle' | 'unsaved' | 'saving' | 'saved' | 'error'>(
@@ -542,13 +425,8 @@ export const BioEditor: React.FC<BioEditorProps> = ({
                 className="bg-transparent font-bold text-xs sm:text-sm text-[#F5FFF8] border-b border-transparent hover:border-[#18221c] focus:border-[#36FF88] outline-none px-1 py-0.5 max-w-[150px] sm:max-w-[240px]"
               />
             </div>
-            <div className="text-[10px] text-[#87938B] font-mono px-1 flex items-center gap-1.5">
-              <span>Modelo: <span className="text-[#36FF88]">{template.name}</span></span>
-              {isChatbotModel && (
-                <span className="px-1.5 py-0.5 rounded-md bg-[#36FF88]/10 text-[#36FF88] font-bold text-[9px] border border-[#36FF88]/30">
-                  💬 Chatbot
-                </span>
-              )}
+            <div className="text-[10px] text-[#87938B] font-mono px-1">
+              Modelo: <span className="text-[#36FF88]">{template.name}</span>
             </div>
           </div>
         </div>
@@ -567,20 +445,6 @@ export const BioEditor: React.FC<BioEditorProps> = ({
             <span className="hidden sm:inline">Editar pelo Preview</span>
             <span className="sm:hidden">Preview</span>
           </button>
-
-          {isChatbotModel && (
-            <button
-              onClick={() => setActiveTab('chatbot')}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                activeTab === 'chatbot'
-                  ? 'bg-[#36FF88] text-[#050706] shadow-[0_0_15px_rgba(54,255,136,0.3)]'
-                  : 'text-[#87938B] hover:text-[#F5FFF8]'
-              }`}
-            >
-              <MessageCircle className="w-3.5 h-3.5" />
-              <span>Conversa</span>
-            </button>
-          )}
 
           <button
             onClick={() => setActiveTab('colors')}
@@ -606,36 +470,6 @@ export const BioEditor: React.FC<BioEditorProps> = ({
             <span>Campos</span>
           </button>
         </div>
-
-        {/* Chatbot Mode Switcher: Editar vs Testar */}
-        {isChatbotModel && (
-          <div className="flex items-center gap-1 bg-[#111713] p-1 rounded-xl border border-[#1e2a22]">
-            <button
-              onClick={() => handleSetPreviewInteractionMode('edit')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
-                previewInteractionMode === 'edit'
-                  ? 'bg-[#1e2a22] text-[#36FF88] border border-[#36FF88]/30 shadow-sm'
-                  : 'text-[#87938B] hover:text-[#F5FFF8]'
-              }`}
-              title="Clique nos balões ou botões para editar"
-            >
-              <MousePointerClick className="w-3 h-3" />
-              <span className="hidden md:inline">Editar</span>
-            </button>
-            <button
-              onClick={() => handleSetPreviewInteractionMode('test')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
-                previewInteractionMode === 'test'
-                  ? 'bg-[#36FF88] text-[#050706] shadow-[0_0_12px_rgba(54,255,136,0.35)]'
-                  : 'text-[#87938B] hover:text-[#F5FFF8]'
-              }`}
-              title="Interaja e teste a navegação do chatbot"
-            >
-              <Sparkles className="w-3 h-3" />
-              <span>Testar</span>
-            </button>
-          </div>
-        )}
 
         {/* Device Switcher (Desktop Preview Frame) */}
         <div className="hidden lg:flex items-center gap-1 bg-[#111713] p-1 rounded-xl border border-[#1e2a22]">
@@ -757,300 +591,6 @@ export const BioEditor: React.FC<BioEditorProps> = ({
         </div>
 
         {/* CONTEXTUAL SIDEBAR / DRAWER */}
-        {/* Chatbot Dedicated Flow Panel */}
-        {activeTab === 'chatbot' && (
-          <div className="w-full sm:w-[420px] bg-[#0B0F0D] border-l border-[#18221c] flex flex-col shrink-0 shadow-2xl z-20 overflow-hidden pb-20 sm:pb-0">
-            <div className="p-4 border-b border-[#18221c] flex items-center justify-between bg-[#070b09]">
-              <div className="flex items-center gap-2">
-                <MessageCircle className="w-4 h-4 text-[#36FF88]" />
-                <div>
-                  <h3 className="font-extrabold text-xs uppercase tracking-wider text-[#F5FFF8]">
-                    Fluxo do Chatbot
-                  </h3>
-                  <p className="text-[10px] text-[#87938B]">
-                    Assistente, mensagens e botões interativos
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-6">
-              {/* 1. Atendente & Perfil */}
-              <div className="bg-[#111713] border border-[#1e2a22] rounded-xl p-4 space-y-3.5">
-                <div className="flex items-center gap-2 border-b border-[#18221c] pb-2">
-                  <Bot className="w-4 h-4 text-[#36FF88]" />
-                  <span className="text-xs font-bold text-[#F5FFF8]">Atendente Virtual</span>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 rounded-xl bg-[#070b09] border border-[#1e2a22] overflow-hidden flex items-center justify-center shrink-0 shadow-inner">
-                    <img
-                      src={fieldValues['logo'] || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200'}
-                      alt="Avatar"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[10px] font-bold text-[#87938B] uppercase block">
-                      Avatar do Assistente
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedFieldKey('logo');
-                        setSelectedFieldData({
-                          key: 'logo',
-                          label: 'Foto / Avatar do Assistente',
-                          type: 'logo',
-                          currentValue: fieldValues['logo'] || '',
-                        });
-                        fileInputRef.current?.click();
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-[#18221c] hover:bg-[#233328] border border-[#1e2a22] text-[#36FF88] text-xs font-semibold rounded-lg transition cursor-pointer"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>Trocar Foto</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-[#87938B] uppercase block">
-                    Nome do Assistente / Canal
-                  </label>
-                  <input
-                    type="text"
-                    value={fieldValues['title_main'] ?? ''}
-                    onChange={(e) => handleFieldValueChange('title_main', e.target.value)}
-                    placeholder="Ex: Atendimento Express 24h"
-                    className="w-full bg-[#0B0F0D] border border-[#1e2a22] focus:border-[#36FF88] rounded-lg px-3 py-2 text-xs text-[#F5FFF8] outline-none"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-[#87938B] uppercase block">
-                    Status em Tempo Real
-                  </label>
-                  <input
-                    type="text"
-                    value={fieldValues['bot_status'] ?? 'Online agora para te ajudar'}
-                    onChange={(e) => handleFieldValueChange('bot_status', e.target.value)}
-                    placeholder="Ex: Online agora para te ajudar"
-                    className="w-full bg-[#0B0F0D] border border-[#1e2a22] focus:border-[#36FF88] rounded-lg px-3 py-2 text-xs text-[#F5FFF8] outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* 2. Mensagens do Chat */}
-              <div className="bg-[#111713] border border-[#1e2a22] rounded-xl p-4 space-y-3.5">
-                <div className="flex items-center justify-between border-b border-[#18221c] pb-2">
-                  <div className="flex items-center gap-2">
-                    <MessageCircle className="w-4 h-4 text-[#36FF88]" />
-                    <span className="text-xs font-bold text-[#F5FFF8]">Mensagens do Assistente</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleAddChatbotMessage}
-                    className="flex items-center gap-1 text-[11px] font-bold text-[#36FF88] hover:text-[#00E86B] cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Adicionar Mensagem</span>
-                  </button>
-                </div>
-
-                {/* Opening message */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-[#87938B] uppercase block">
-                    Mensagem de Abertura (Boas-vindas)
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={fieldValues['subtitle'] ?? ''}
-                    onChange={(e) => handleFieldValueChange('subtitle', e.target.value)}
-                    placeholder="Olá! Como posso te ajudar hoje?..."
-                    className="w-full bg-[#0B0F0D] border border-[#1e2a22] focus:border-[#36FF88] rounded-lg p-2.5 text-xs text-[#F5FFF8] outline-none leading-relaxed"
-                  />
-                </div>
-
-                {/* Additional messages */}
-                {Object.keys(fieldValues)
-                  .filter((k) => k.startsWith('bot_msg_'))
-                  .sort()
-                  .map((msgKey, idx) => (
-                    <div key={msgKey} className="space-y-1 pt-2 border-t border-[#18221c]">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-bold text-[#87938B] uppercase">
-                          Mensagem {idx + 2}
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveChatbotMessage(msgKey)}
-                          className="text-[10px] text-red-400 hover:text-red-300 flex items-center gap-1 cursor-pointer"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          <span>Remover</span>
-                        </button>
-                      </div>
-                      <textarea
-                        rows={2}
-                        value={fieldValues[msgKey] ?? ''}
-                        onChange={(e) => handleFieldValueChange(msgKey, e.target.value)}
-                        className="w-full bg-[#0B0F0D] border border-[#1e2a22] focus:border-[#36FF88] rounded-lg p-2.5 text-xs text-[#F5FFF8] outline-none"
-                      />
-                    </div>
-                  ))}
-              </div>
-
-              {/* 3. Opções de Resposta & Funil */}
-              <div className="bg-[#111713] border border-[#1e2a22] rounded-xl p-4 space-y-3.5">
-                <div className="flex items-center justify-between border-b border-[#18221c] pb-2">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-[#36FF88]" />
-                    <span className="text-xs font-bold text-[#F5FFF8]">Botões de Ação do Funil</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleAddChatbotOption}
-                    className="flex items-center gap-1 text-[11px] font-bold text-[#36FF88] hover:text-[#00E86B] cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Adicionar Opção</span>
-                  </button>
-                </div>
-
-                {/* Option 1 */}
-                <div className="space-y-2 bg-[#0B0F0D] p-3 rounded-lg border border-[#1e2a22]">
-                  <label className="text-[10px] font-bold text-[#36FF88] uppercase block">
-                    Opção 1 (WhatsApp / Principal)
-                  </label>
-                  <input
-                    type="text"
-                    value={fieldValues['opt_1_label'] ?? '💰 1. Quero saber valores e planos'}
-                    onChange={(e) => handleFieldValueChange('opt_1_label', e.target.value)}
-                    placeholder="Texto do Botão 1"
-                    className="w-full bg-[#111713] border border-[#1e2a22] focus:border-[#36FF88] rounded-lg px-2.5 py-1.5 text-xs text-[#F5FFF8] outline-none"
-                  />
-                  <div className="space-y-1">
-                    <span className="text-[9px] font-mono text-[#87938B]">Link ou WhatsApp:</span>
-                    <input
-                      type="text"
-                      value={fieldValues['whatsapp'] ?? ''}
-                      onChange={(e) => handleFieldValueChange('whatsapp', e.target.value)}
-                      placeholder="https://wa.me/55..."
-                      className="w-full bg-[#111713] border border-[#1e2a22] focus:border-[#36FF88] rounded-lg px-2.5 py-1.5 text-xs text-[#F5FFF8] font-mono outline-none"
-                    />
-                  </div>
-                </div>
-
-                {/* Option 2 */}
-                <div className="space-y-2 bg-[#0B0F0D] p-3 rounded-lg border border-[#1e2a22]">
-                  <label className="text-[10px] font-bold text-[#36FF88] uppercase block">
-                    Opção 2 (Atendente Humano / Canal)
-                  </label>
-                  <input
-                    type="text"
-                    value={fieldValues['opt_2_label'] ?? '👨‍💻 2. Falar com atendente humano'}
-                    onChange={(e) => handleFieldValueChange('opt_2_label', e.target.value)}
-                    placeholder="Texto do Botão 2"
-                    className="w-full bg-[#111713] border border-[#1e2a22] focus:border-[#36FF88] rounded-lg px-2.5 py-1.5 text-xs text-[#F5FFF8] outline-none"
-                  />
-                  <div className="space-y-1">
-                    <span className="text-[9px] font-mono text-[#87938B]">Link de Destino:</span>
-                    <input
-                      type="text"
-                      value={fieldValues['instagram'] ?? ''}
-                      onChange={(e) => handleFieldValueChange('instagram', e.target.value)}
-                      placeholder="https://wa.me/... ou Instagram"
-                      className="w-full bg-[#111713] border border-[#1e2a22] focus:border-[#36FF88] rounded-lg px-2.5 py-1.5 text-xs text-[#F5FFF8] font-mono outline-none"
-                    />
-                  </div>
-                </div>
-
-                {/* Option 3 */}
-                <div className="space-y-2 bg-[#0B0F0D] p-3 rounded-lg border border-[#1e2a22]">
-                  <label className="text-[10px] font-bold text-[#36FF88] uppercase block">
-                    Opção 3 (Endereço / Localização / Link)
-                  </label>
-                  <input
-                    type="text"
-                    value={fieldValues['opt_3_label'] ?? '📍 3. Endereço e rotas de acesso'}
-                    onChange={(e) => handleFieldValueChange('opt_3_label', e.target.value)}
-                    placeholder="Texto do Botão 3"
-                    className="w-full bg-[#111713] border border-[#1e2a22] focus:border-[#36FF88] rounded-lg px-2.5 py-1.5 text-xs text-[#F5FFF8] outline-none"
-                  />
-                  <div className="space-y-1">
-                    <span className="text-[9px] font-mono text-[#87938B]">Link do Maps ou Site:</span>
-                    <input
-                      type="text"
-                      value={fieldValues['maps_link'] ?? ''}
-                      onChange={(e) => handleFieldValueChange('maps_link', e.target.value)}
-                      placeholder="https://maps.google.com"
-                      className="w-full bg-[#111713] border border-[#1e2a22] focus:border-[#36FF88] rounded-lg px-2.5 py-1.5 text-xs text-[#F5FFF8] font-mono outline-none"
-                    />
-                  </div>
-                </div>
-
-                {/* Additional dynamic options */}
-                {Object.keys(fieldValues)
-                  .filter((k) => k.startsWith('bot_opt_') && k.endsWith('_label'))
-                  .sort()
-                  .map((labelKey) => {
-                    const optIndex = labelKey.replace('bot_opt_', '').replace('_label', '');
-                    const urlKey = `bot_opt_${optIndex}_url`;
-                    return (
-                      <div key={labelKey} className="space-y-2 bg-[#0B0F0D] p-3 rounded-lg border border-[#1e2a22]">
-                        <div className="flex items-center justify-between">
-                          <label className="text-[10px] font-bold text-[#36FF88] uppercase">
-                            Opção Adicional ({optIndex})
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveChatbotOption(labelKey, urlKey)}
-                            className="text-[10px] text-red-400 hover:text-red-300 flex items-center gap-1 cursor-pointer"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                            <span>Remover</span>
-                          </button>
-                        </div>
-                        <input
-                          type="text"
-                          value={fieldValues[labelKey] ?? ''}
-                          onChange={(e) => handleFieldValueChange(labelKey, e.target.value)}
-                          placeholder="Texto da Opção"
-                          className="w-full bg-[#111713] border border-[#1e2a22] focus:border-[#36FF88] rounded-lg px-2.5 py-1.5 text-xs text-[#F5FFF8] outline-none"
-                        />
-                        <div className="space-y-1">
-                          <span className="text-[9px] font-mono text-[#87938B]">Link de Destino:</span>
-                          <input
-                            type="text"
-                            value={fieldValues[urlKey] ?? ''}
-                            onChange={(e) => handleFieldValueChange(urlKey, e.target.value)}
-                            placeholder="https://..."
-                            className="w-full bg-[#111713] border border-[#1e2a22] focus:border-[#36FF88] rounded-lg px-2.5 py-1.5 text-xs text-[#F5FFF8] font-mono outline-none"
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-
-              {/* 4. Rodapé Informativo */}
-              <div className="bg-[#111713] border border-[#1e2a22] rounded-xl p-4 space-y-2">
-                <label className="text-[10px] font-bold text-[#87938B] uppercase block">
-                  Rodapé do Chatbot
-                </label>
-                <input
-                  type="text"
-                  value={fieldValues['address_text'] ?? 'Atendimento automatizado com resposta em menos de 1 minuto'}
-                  onChange={(e) => handleFieldValueChange('address_text', e.target.value)}
-                  placeholder="Ex: Atendimento automatizado com resposta em menos de 1 minuto"
-                  className="w-full bg-[#0B0F0D] border border-[#1e2a22] focus:border-[#36FF88] rounded-lg px-3 py-2 text-xs text-[#F5FFF8] outline-none"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Colors & Palettes Panel */}
         {activeTab === 'colors' && (
           <div className="w-full sm:w-[380px] bg-[#0B0F0D] border-l border-[#18221c] flex flex-col shrink-0 shadow-2xl z-20 overflow-hidden pb-20 sm:pb-0">
