@@ -1,0 +1,7 @@
+{
+  "name": "Bio Fácil",
+  "description": "Plataforma de criação e personalização de biosites com visualização em tempo real e exportação independente.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

@@ -1,0 +1,82 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'jeanncarllostk00@gmail.com' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isApproved() {
+      return isSignedIn() && (
+        request.auth.token.email == 'jeanncarllostk00@gmail.com' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'approved'
+      );
+    }
+
+    // Users collection
+    match /users/{userId} {
+      // User can read their own profile, Admin can read all
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // User can create their own profile as 'user' and 'pending' (or admin bootstrap)
+      allow create: if isSignedIn() && (
+        (isOwner(userId) && request.resource.data.role == 'user' && request.resource.data.status == 'pending') ||
+        (isOwner(userId) && request.auth.token.email == 'jeanncarllostk00@gmail.com') ||
+        isAdmin()
+      );
+
+      // Only admin can update role and status; user can update their name
+      allow update: if isAdmin() || (
+        isOwner(userId) &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.status == resource.data.status
+      );
+
+      // Only admin can delete users
+      allow delete: if isAdmin();
+    }
+
+    // Templates collection (Biosite models)
+    match /templates/{templateId} {
+      // Approved users can read published templates; Admin can read all
+      allow read: if isAdmin() || (isApproved() && resource.data.status == 'published');
+      
+      // Only Admin can create, update, or delete templates
+      allow write: if isAdmin();
+    }
+
+    // Projects collection
+    match /projects/{projectId} {
+      // Project owner can read/write their own projects; Admin can read all
+      allow read: if (isSignedIn() && resource.data.ownerUid == request.auth.uid) || isAdmin();
+      allow create: if isApproved() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isApproved() && (
+        (resource.data.ownerUid == request.auth.uid && request.resource.data.ownerUid == request.auth.uid) || isAdmin()
+      );
+      allow delete: if isApproved() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+    }
+
+    // Niches collection (catalog configuration)
+    match /niches/{nicheId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // System configurations & statistics
+    match /system/{document=**} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+  }
+}

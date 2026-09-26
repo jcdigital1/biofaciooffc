@@ -1,0 +1,51 @@
+{
+  "entities": {
+    "User": {
+      "collection": "users",
+      "fields": {
+        "uid": { "type": "string", "required": true },
+        "name": { "type": "string", "required": true },
+        "email": { "type": "string", "required": true },
+        "role": { "type": "string", "required": true, "enum": ["user", "admin"] },
+        "status": { "type": "string", "required": true, "enum": ["pending", "approved", "rejected", "blocked"] },
+        "approvedAt": { "type": "timestamp" },
+        "approvedBy": { "type": "string" },
+        "createdAt": { "type": "timestamp", "required": true },
+        "updatedAt": { "type": "timestamp", "required": true }
+      }
+    },
+    "Template": {
+      "collection": "templates",
+      "fields": {
+        "templateId": { "type": "string", "required": true },
+        "name": { "type": "string", "required": true },
+        "nicheId": { "type": "string", "required": true },
+        "nicheName": { "type": "string", "required": true },
+        "version": { "type": "number", "required": true },
+        "status": { "type": "string", "required": true, "enum": ["draft", "published", "archived"] },
+        "sourceHtml": { "type": "string", "required": true },
+        "editorSchema": { "type": "object", "required": true },
+        "themeMetadata": { "type": "object" },
+        "createdAt": { "type": "timestamp", "required": true },
+        "updatedAt": { "type": "timestamp", "required": true }
+      }
+    },
+    "Project": {
+      "collection": "projects",
+      "fields": {
+        "id": { "type": "string", "required": true },
+        "ownerUid": { "type": "string", "required": true },
+        "templateId": { "type": "string", "required": true },
+        "templateVersion": { "type": "number", "required": true },
+        "templateName": { "type": "string", "required": true },
+        "nicheId": { "type": "string", "required": true },
+        "name": { "type": "string", "required": true },
+        "values": { "type": "object", "required": true },
+        "theme": { "type": "object" },
+        "assets": { "type": "object" },
+        "createdAt": { "type": "timestamp", "required": true },
+        "updatedAt": { "type": "timestamp", "required": true }
+      }
+    }
+  }
+}
