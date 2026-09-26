@@ -13,8 +13,9 @@ import {
   serverTimestamp,
   onSnapshot,
 } from 'firebase/firestore';
-import { auth, db, ADMIN_EMAIL, isFirebaseConnected } from '../lib/firebase';
+import { auth, db, ADMIN_EMAIL, isFirebaseConnected, isUserAdmin } from '../lib/firebase';
 import { UserProfile } from '../types';
+import { loadStoredUserProfile, saveStoredUserProfile } from '../lib/storage';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -60,9 +61,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
+      const isMasterAdmin = isUserAdmin(user.email);
+
+      // Fast-load from local cache to avoid screen flicker or delay
+      const cached = loadStoredUserProfile(user.uid);
+      if (cached) {
+        setUserProfile({
+          ...cached,
+          role: isMasterAdmin ? 'admin' : cached.role || 'user',
+          status: isMasterAdmin ? 'approved' : cached.status || 'approved',
+        });
+      }
+
       try {
+        if (!db) {
+          // If firestore instance is not ready, set profile from cached/master admin
+          if (isMasterAdmin && !cached) {
+            const adm: UserProfile = {
+              uid: user.uid,
+              name: user.displayName || 'Administrador Bio Fácil',
+              email: user.email || ADMIN_EMAIL,
+              role: 'admin',
+              status: 'approved',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            };
+            setUserProfile(adm);
+            saveStoredUserProfile(adm);
+          }
+          setLoading(false);
+          return;
+        }
+
         const userRef = doc(db, 'users', user.uid);
-        const isMasterAdmin = user.email?.toLowerCase().trim() === ADMIN_EMAIL.toLowerCase().trim();
 
         // Real-time snapshot listener on the user's profile document
         unsubscribeSnapshot = onSnapshot(
@@ -72,22 +103,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const data = snapshot.data() as UserProfile;
               // If it's the master admin, ensure role is admin and status approved
               if (isMasterAdmin && (data.role !== 'admin' || data.status !== 'approved')) {
-                await setDoc(
-                  userRef,
-                  {
-                    role: 'admin',
-                    status: 'approved',
-                    updatedAt: serverTimestamp(),
-                  },
-                  { merge: true }
-                );
+                try {
+                  await setDoc(
+                    userRef,
+                    {
+                      role: 'admin',
+                      status: 'approved',
+                      updatedAt: serverTimestamp(),
+                    },
+                    { merge: true }
+                  );
+                } catch {
+                  // Silently ignore write errors if quota is hit
+                }
               }
-              setUserProfile({
+              const finalProfile: UserProfile = {
                 ...data,
                 uid: user.uid,
                 role: isMasterAdmin ? 'admin' : data.role || 'user',
-                status: isMasterAdmin ? 'approved' : data.status || 'pending',
-              });
+                status: isMasterAdmin ? 'approved' : data.status || 'approved',
+              };
+              setUserProfile(finalProfile);
+              saveStoredUserProfile(finalProfile);
             } else {
               // Document does not exist yet
               if (isMasterAdmin) {
@@ -95,14 +132,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 const adminDocData: UserProfile = {
                   uid: user.uid,
                   name: user.displayName || 'Administrador Bio Fácil',
-                  email: ADMIN_EMAIL,
+                  email: user.email || ADMIN_EMAIL,
                   role: 'admin',
                   status: 'approved',
                   createdAt: serverTimestamp(),
                   updatedAt: serverTimestamp(),
                 };
-                await setDoc(userRef, adminDocData);
+                try {
+                  await setDoc(userRef, adminDocData);
+                } catch {
+                  // Ignore if quota exceeded
+                }
                 setUserProfile(adminDocData);
+                saveStoredUserProfile(adminDocData);
               } else {
                 // Common user doc missing (safety fallback)
                 const newDocData: UserProfile = {
@@ -110,35 +152,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   name: user.displayName || 'Usuário',
                   email: user.email || '',
                   role: 'user',
-                  status: 'pending',
+                  status: 'approved',
                   createdAt: serverTimestamp(),
                   updatedAt: serverTimestamp(),
                 };
-                await setDoc(userRef, newDocData);
+                try {
+                  await setDoc(userRef, newDocData);
+                } catch {
+                  // Ignore if quota exceeded
+                }
                 setUserProfile(newDocData);
+                saveStoredUserProfile(newDocData);
               }
             }
             setLoading(false);
           },
           (err) => {
-            console.error('Erro no listener do perfil:', err);
-            // If permissions fail but user is admin by email, set local admin profile
+            console.warn('[Bio Fácil Auth] Listener de perfil Firestore (usando fallback offline):', err);
             if (isMasterAdmin) {
-              setUserProfile({
+              const adm: UserProfile = {
                 uid: user.uid,
-                name: 'Administrador Bio Fácil',
-                email: ADMIN_EMAIL,
+                name: user.displayName || 'Administrador Bio Fácil',
+                email: user.email || ADMIN_EMAIL,
                 role: 'admin',
                 status: 'approved',
-                createdAt: new Date(),
-                updatedAt: new Date(),
-              });
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              };
+              setUserProfile(adm);
+              saveStoredUserProfile(adm);
+            } else {
+              const existingCached = loadStoredUserProfile(user.uid);
+              if (existingCached) {
+                setUserProfile(existingCached);
+              } else {
+                const userFallback: UserProfile = {
+                  uid: user.uid,
+                  name: user.displayName || user.email?.split('@')[0] || 'Usuário',
+                  email: user.email || '',
+                  role: 'user',
+                  status: 'approved',
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                };
+                setUserProfile(userFallback);
+                saveStoredUserProfile(userFallback);
+              }
             }
             setLoading(false);
           }
         );
       } catch (err: any) {
-        console.error('Erro ao verificar usuário:', err);
+        console.warn('[Bio Fácil Auth] Erro ao verificar usuário:', err);
         setLoading(false);
       }
     });
@@ -190,17 +255,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
       const user = userCredential.user;
 
-      // Create users/{uid} document with status: 'pending' and role: 'user'
-      const userDocRef = doc(db, 'users', user.uid);
-      await setDoc(userDocRef, {
+      const newProfile: UserProfile = {
         uid: user.uid,
         name: name.trim() || 'Usuário',
         email: cleanEmail,
         role: 'user',
-        status: 'pending',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+        status: 'approved',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      saveStoredUserProfile(newProfile);
+      setUserProfile(newProfile);
+
+      // Attempt sync to Firestore without blocking the user if quota is reached
+      if (db) {
+        try {
+          const userDocRef = doc(db, 'users', user.uid);
+          await setDoc(userDocRef, {
+            uid: user.uid,
+            name: name.trim() || 'Usuário',
+            email: cleanEmail,
+            role: 'user',
+            status: 'approved',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        } catch (dbErr) {
+          console.warn('[Bio Fácil Auth] Erro ao persistir usuário no Firestore (armazenado localmente):', dbErr);
+        }
+      }
     } catch (err: any) {
       console.error('Erro ao cadastrar usuário:', err);
       let message = 'Falha ao criar conta no Firebase.';
