@@ -58,11 +58,11 @@ export const OFFICIAL_NICHES: NicheInfo[] = [
     iconName: 'chatbot',
   },
   {
-    id: 'saude-bem-estar',
-    name: 'Saúde & Bem-Estar',
-    slug: 'saude-bem-estar',
-    description: 'Médicos, nutricionistas, psicólogos, dentistas e academias',
-    iconName: 'health',
+    id: 'cardapios-digital',
+    name: 'Cardápios Digital',
+    slug: 'cardapios-digital',
+    description: 'Cardápios interativos, combos, vitrine de produtos e pedidos diretos',
+    iconName: 'menu',
   },
   {
     id: 'portfolio-criadores',
@@ -72,3 +72,25 @@ export const OFFICIAL_NICHES: NicheInfo[] = [
     iconName: 'creators',
   },
 ];
+
+/**
+ * Matches a template's nicheId with a target nicheId, seamlessly supporting
+ * any legacy models created under 'saude-bem-estar' so they map to 'cardapios-digital'.
+ */
+export function matchTemplateNiche(templateNicheId: string, targetNicheId: string): boolean {
+  if (templateNicheId === targetNicheId) return true;
+  if (targetNicheId === 'cardapios-digital' && templateNicheId === 'saude-bem-estar') return true;
+  if (targetNicheId === 'saude-bem-estar' && templateNicheId === 'cardapios-digital') return true;
+  return false;
+}
+
+/**
+ * Normalizes niche display name, safely handling legacy 'saude-bem-estar'.
+ */
+export function getNormalizedNicheName(nicheId: string, currentName?: string): string {
+  if (nicheId === 'cardapios-digital' || nicheId === 'saude-bem-estar') {
+    return 'Cardápios Digital';
+  }
+  const found = OFFICIAL_NICHES.find((n) => n.id === nicheId);
+  return found?.name || currentName || nicheId;
+}

@@ -122,10 +122,61 @@ export function preparePreviewHtml(
         });
       }
 
+      let isPreviewTestMode = false;
+
       // Message Receiver from Parent Window
       window.addEventListener('message', function(event) {
         const data = event.data;
         if (!data || !data.type) return;
+
+        if (data.type === 'BIO_SET_PREVIEW_MODE') {
+          isPreviewTestMode = (data.mode === 'test');
+          document.querySelectorAll('.bio-field-active').forEach(el => el.classList.remove('bio-field-active'));
+          return;
+        }
+
+        if (data.type === 'BIO_CHAT_ADD_MESSAGE') {
+          const chatBox = document.querySelector('.chat-box, #bio-chat-messages, [class*="chat"], .container');
+          if (chatBox) {
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble bubble-bot';
+            bubble.setAttribute('data-bio-text', data.key);
+            bubble.textContent = data.text || 'Nova mensagem do assistente...';
+            chatBox.appendChild(bubble);
+          }
+          return;
+        }
+
+        if (data.type === 'BIO_CHAT_ADD_OPTION') {
+          const actionsGrid = document.querySelector('.actions-grid, #bio-chat-actions, [class*="actions"], [class*="options"], .container');
+          if (actionsGrid) {
+            const actionBtn = document.createElement('a');
+            actionBtn.className = 'action-btn';
+            actionBtn.setAttribute('data-bio-link', data.linkKey);
+            actionBtn.setAttribute('href', data.url || '#');
+
+            const labelSpan = document.createElement('span');
+            labelSpan.setAttribute('data-bio-text', data.labelKey);
+            labelSpan.textContent = data.label || 'Nova Opção';
+
+            const arrowSpan = document.createElement('span');
+            arrowSpan.textContent = '→';
+
+            actionBtn.appendChild(labelSpan);
+            actionBtn.appendChild(arrowSpan);
+            actionsGrid.appendChild(actionBtn);
+          }
+          return;
+        }
+
+        if (data.type === 'BIO_CHAT_REMOVE_ELEMENT') {
+          const el = document.querySelector('[data-bio-text="' + data.key + '"], [data-bio-link="' + data.key + '"]');
+          if (el) {
+            const container = el.closest('.action-btn, .bubble') || el;
+            container.remove();
+          }
+          return;
+        }
 
         if (data.type === 'BIO_UPDATE_FIELD') {
           applyFieldToDOM(data.key, data.value);
@@ -150,6 +201,10 @@ export function preparePreviewHtml(
       // EDITAR PELO PREVIEW - Direct click interception
       if (isEditorMode) {
         document.addEventListener('click', function(e) {
+          if (isPreviewTestMode) {
+            // In Test Mode, allow natural user interaction with buttons and links!
+            return;
+          }
           e.preventDefault();
           e.stopPropagation();
 
@@ -307,6 +362,47 @@ export function generateExportHtml(
     linkEls.forEach((el) => {
       el.setAttribute('href', String(val));
     });
+
+    // Dynamic Bot Messages (if added by user in editor)
+    if (key.startsWith('bot_msg_') && !doc.querySelector(`[data-bio-text="${key}"]`)) {
+      const chatBox = doc.querySelector('.chat-box, #bio-chat-messages, [class*="chat"], .container');
+      if (chatBox) {
+        const bubble = doc.createElement('div');
+        bubble.className = 'bubble bubble-bot';
+        bubble.setAttribute('data-bio-text', key);
+        bubble.textContent = String(val);
+        chatBox.appendChild(bubble);
+      }
+    }
+
+    // Dynamic Bot Options (if added by user in editor)
+    if (key.startsWith('bot_opt_') && key.endsWith('_label')) {
+      const optIndex = key.replace('bot_opt_', '').replace('_label', '');
+      const urlKey = `bot_opt_${optIndex}_url`;
+      const urlVal = values[urlKey] || '#';
+
+      const existingOpt = doc.querySelector(`[data-bio-text="${key}"]`);
+      if (!existingOpt) {
+        const actionsGrid = doc.querySelector('.actions-grid, #bio-chat-actions, [class*="actions"], [class*="options"], .container');
+        if (actionsGrid) {
+          const actionBtn = doc.createElement('a');
+          actionBtn.className = 'action-btn';
+          actionBtn.setAttribute('data-bio-link', urlKey);
+          actionBtn.setAttribute('href', urlVal);
+
+          const labelSpan = doc.createElement('span');
+          labelSpan.setAttribute('data-bio-text', key);
+          labelSpan.textContent = String(val);
+
+          const arrowSpan = doc.createElement('span');
+          arrowSpan.textContent = '→';
+
+          actionBtn.appendChild(labelSpan);
+          actionBtn.appendChild(arrowSpan);
+          actionsGrid.appendChild(actionBtn);
+        }
+      }
+    }
   }
 
   // 3. Remove editor bridge styles, scripts and outline classes

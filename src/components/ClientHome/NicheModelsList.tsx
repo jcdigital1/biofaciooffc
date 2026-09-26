@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { NicheInfo, BioTemplate } from '../../types';
 import { NicheIcon } from '../NicheIcon';
+import { matchTemplateNiche } from '../../constants/niches';
 import { preparePreviewHtml } from '../../lib/bioPreview';
 import { ArrowLeft, Eye, Edit3, Sparkles } from 'lucide-react';
 
@@ -20,7 +21,7 @@ export const NicheModelsList: React.FC<NicheModelsListProps> = ({
   onCustomize,
 }) => {
   const publishedTemplates = templates.filter(
-    (t) => t.nicheId === niche.id && t.status === 'published'
+    (t) => matchTemplateNiche(t.nicheId, niche.id) && t.status === 'published'
   );
 
   // Pagination state: load initial 8-12 models, then "CARREGAR MAIS"
