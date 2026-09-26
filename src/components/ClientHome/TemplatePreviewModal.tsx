@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { BioTemplate } from '../../types';
 import { preparePreviewHtml } from '../../lib/bioPreview';
-import { getNormalizedNicheName } from '../../constants/niches';
 import { X, Smartphone, Tablet, Monitor, Edit3 } from 'lucide-react';
 
 interface TemplatePreviewModalProps {
@@ -39,9 +38,7 @@ export const TemplatePreviewModal: React.FC<TemplatePreviewModalProps> = ({
       <div className="border-b border-[#18221c] bg-[#070b09] px-4 py-3 flex items-center justify-between shrink-0">
         <div>
           <h3 className="font-extrabold text-sm text-[#F5FFF8]">{template.name}</h3>
-          <span className="text-[11px] font-mono text-[#36FF88]">
-            {getNormalizedNicheName(template.nicheId, template.nicheName)}
-          </span>
+          <span className="text-[11px] font-mono text-[#36FF88]">{template.nicheName}</span>
         </div>
 
         {/* Device Switcher */}
