@@ -1,12 +1,6 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, Auth } from 'firebase/auth';
-import {
-  getFirestore,
-  Firestore,
-  initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
-} from 'firebase/firestore';
+import { getFirestore, Firestore } from 'firebase/firestore';
 import { getStorage, FirebaseStorage } from 'firebase/storage';
 import rawConfig from '../../firebase-applet-config.json';
 
@@ -28,16 +22,6 @@ let isFirebaseConnected = false;
 let connectionError: string | null = null;
 
 export const ADMIN_EMAIL = 'jeanncarllostk00@gmail.com';
-export const ADMIN_EMAILS = [
-  'jeanncarllostk00@gmail.com',
-  'jeannleticia00@gmail.com',
-];
-
-export function isUserAdmin(email?: string | null): boolean {
-  if (!email) return false;
-  const clean = email.trim().toLowerCase();
-  return ADMIN_EMAILS.some((adm) => adm.toLowerCase() === clean);
-}
 
 try {
   if (!rawConfig.projectId || !rawConfig.apiKey) {
@@ -56,27 +40,10 @@ try {
   app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
   auth = getAuth(app);
 
-  const dbId = rawConfig.firestoreDatabaseId && rawConfig.firestoreDatabaseId !== '(default)'
-    ? rawConfig.firestoreDatabaseId
-    : undefined;
-
-  try {
-    if (dbId) {
-      db = initializeFirestore(app, {
-        localCache: persistentLocalCache({
-          tabManager: persistentMultipleTabManager(),
-        }),
-      }, dbId);
-    } else {
-      db = initializeFirestore(app, {
-        localCache: persistentLocalCache({
-          tabManager: persistentMultipleTabManager(),
-        }),
-      });
-    }
-  } catch (fsInitErr) {
-    console.warn('[Firebase] initializeFirestore cache fallback:', fsInitErr);
-    db = dbId ? getFirestore(app, dbId) : getFirestore(app);
+  if (rawConfig.firestoreDatabaseId && rawConfig.firestoreDatabaseId !== '(default)') {
+    db = getFirestore(app, rawConfig.firestoreDatabaseId);
+  } else {
+    db = getFirestore(app);
   }
 
   storage = getStorage(app);

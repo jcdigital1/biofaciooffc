@@ -9,7 +9,6 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         request.auth.token.email == 'jeanncarllostk00@gmail.com' ||
-        request.auth.token.email == 'jeannleticia00@gmail.com' ||
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
       );
     }
@@ -20,59 +19,52 @@ service cloud.firestore {
 
     function isApproved() {
       return isSignedIn() && (
-        isAdmin() ||
+        request.auth.token.email == 'jeanncarllostk00@gmail.com' ||
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'approved'
       );
     }
 
-    // Users collection: Private account profiles
+    // Users collection
     match /users/{userId} {
-      // User can read their own profile, Admin can read any individual profile
-      allow get: if isOwner(userId) || isAdmin();
-      // Only Admin can list all users in the administrative dashboard
-      allow list: if isAdmin();
+      // User can read their own profile, Admin can read all
+      allow read: if isOwner(userId) || isAdmin();
       
-      // User can create their own initial profile as 'user' with 'pending' status (or admin bootstrap)
+      // User can create their own profile as 'user' and 'pending' (or admin bootstrap)
       allow create: if isSignedIn() && (
         (isOwner(userId) && request.resource.data.role == 'user' && request.resource.data.status == 'pending') ||
+        (isOwner(userId) && request.auth.token.email == 'jeanncarllostk00@gmail.com') ||
         isAdmin()
       );
 
-      // Only admin can change role and status; user can update their name but cannot promote self
+      // Only admin can update role and status; user can update their name
       allow update: if isAdmin() || (
         isOwner(userId) &&
         request.resource.data.role == resource.data.role &&
-        request.resource.data.status == resource.data.status &&
-        request.resource.data.email == resource.data.email
+        request.resource.data.status == resource.data.status
       );
 
-      // Only admin can delete user profiles
+      // Only admin can delete users
       allow delete: if isAdmin();
     }
 
-    // Global Templates collection (Master catalog)
-    // Protected against client tampering: Only admin can create, modify, publish, or delete
+    // Global Templates collection (Biosite catalog)
     match /templates/{templateId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
+      // All authenticated users can read templates
+      allow read: if isSignedIn();
+      // Only Admin can create, modify, publish, unpublish, or delete templates
       allow write: if isAdmin();
     }
 
-    // Projects collection (Individual user customizations)
-    // Bound strictly to ownerUid so users cannot access, edit, or delete another's projects
+    // Projects collection (user customizations)
     match /projects/{projectId} {
-      allow get: if (isSignedIn() && resource.data.ownerUid == request.auth.uid) || isAdmin();
-      allow list: if (isSignedIn() && resource.data.ownerUid == request.auth.uid) || isAdmin();
-      
-      // Creating a project requires user authentication and ownerUid matching request.auth.uid
+      // Owner or Admin can read
+      allow read: if (isSignedIn() && resource.data.ownerUid == request.auth.uid) || isAdmin();
+      // Approved users can create and manage their own projects
       allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
-      
-      // Updating a project requires ownerUid preservation and ownership
-      allow update: if (isSignedIn() && 
-        resource.data.ownerUid == request.auth.uid && 
-        request.resource.data.ownerUid == request.auth.uid) || isAdmin();
-        
-      allow delete: if (isSignedIn() && resource.data.ownerUid == request.auth.uid) || isAdmin();
+      allow update: if isSignedIn() && (
+        (resource.data.ownerUid == request.auth.uid && request.resource.data.ownerUid == request.auth.uid) || isAdmin()
+      );
+      allow delete: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
     }
 
     // Niches collection
@@ -85,11 +77,6 @@ service cloud.firestore {
     match /system/{document=**} {
       allow read: if isAdmin();
       allow write: if isAdmin();
-    }
-
-    // Global catch-all default deny
-    match /{document=**} {
-      allow read, write: if false;
     }
   }
 }

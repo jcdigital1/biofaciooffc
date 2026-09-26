@@ -70,12 +70,6 @@ export function preparePreviewHtml(
         }
       }
 
-      function isSafeUrl(u) {
-        if (!u || typeof u !== 'string') return true;
-        const s = u.trim().toLowerCase();
-        return !s.startsWith('javascript:') && !s.startsWith('vbscript:');
-      }
-
       function applyFieldToDOM(key, val) {
         if (val === undefined || val === null) return;
 
@@ -87,8 +81,7 @@ export function preparePreviewHtml(
           if (cleanPhone && !String(val).startsWith('http')) {
             waUrl = 'https://wa.me/' + cleanPhone;
           }
-          const safeWaUrl = isSafeUrl(waUrl) ? waUrl : '#';
-          waEls.forEach(el => el.setAttribute('href', safeWaUrl));
+          waEls.forEach(el => el.setAttribute('href', waUrl));
           return;
         }
 
@@ -100,8 +93,7 @@ export function preparePreviewHtml(
             let handle = String(val).replace('@', '').trim();
             igUrl = 'https://instagram.com/' + handle;
           }
-          const safeIgUrl = isSafeUrl(igUrl) ? igUrl : '#';
-          igEls.forEach(el => el.setAttribute('href', safeIgUrl));
+          igEls.forEach(el => el.setAttribute('href', igUrl));
           return;
         }
 
@@ -116,19 +108,17 @@ export function preparePreviewHtml(
         // Match by data-bio-image
         const imgEls = document.querySelectorAll('[data-bio-image="' + key + '"], [data-bio-id="' + key + '"]');
         imgEls.forEach(el => {
-          const safeSrc = isSafeUrl(val) ? val : '';
           if (el.tagName === 'IMG') {
-            el.setAttribute('src', safeSrc);
+            el.setAttribute('src', val);
           } else {
-            el.style.backgroundImage = 'url(' + safeSrc + ')';
+            el.style.backgroundImage = 'url(' + val + ')';
           }
         });
 
         // Match by data-bio-link
         const linkEls = document.querySelectorAll('[data-bio-link="' + key + '"]');
-        const safeLink = isSafeUrl(val) ? val : '#';
         linkEls.forEach(el => {
-          el.setAttribute('href', safeLink);
+          el.setAttribute('href', val);
         });
       }
 
@@ -321,12 +311,6 @@ export function generateExportHtml(
     styleTag.textContent = `:root {\n${declarations}\n}`;
   }
 
-  function isSafeUrl(u: any): boolean {
-    if (!u || typeof u !== 'string') return true;
-    const s = u.trim().toLowerCase();
-    return !s.startsWith('javascript:') && !s.startsWith('vbscript:');
-  }
-
   // 2. Bake in all customized values into the DOM
   for (const [key, val] of Object.entries(values)) {
     if (val === undefined || val === null) continue;
@@ -339,8 +323,7 @@ export function generateExportHtml(
       if (cleanPhone && !String(val).startsWith('http')) {
         waUrl = `https://wa.me/${cleanPhone}`;
       }
-      const safeWaUrl = isSafeUrl(waUrl) ? waUrl : '#';
-      waEls.forEach((el) => el.setAttribute('href', safeWaUrl));
+      waEls.forEach((el) => el.setAttribute('href', waUrl));
       continue;
     }
 
@@ -352,8 +335,7 @@ export function generateExportHtml(
         let handle = String(val).replace('@', '').trim();
         igUrl = `https://instagram.com/${handle}`;
       }
-      const safeIgUrl = isSafeUrl(igUrl) ? igUrl : '#';
-      igEls.forEach((el) => el.setAttribute('href', safeIgUrl));
+      igEls.forEach((el) => el.setAttribute('href', igUrl));
       continue;
     }
 
@@ -368,19 +350,17 @@ export function generateExportHtml(
     // Image elements
     const imgEls = doc.querySelectorAll(`[data-bio-image="${key}"], [data-bio-id="${key}"]`);
     imgEls.forEach((el) => {
-      const safeSrc = isSafeUrl(val) ? String(val) : '';
       if (el.tagName === 'IMG') {
-        el.setAttribute('src', safeSrc);
+        el.setAttribute('src', String(val));
       } else {
-        (el as HTMLElement).style.backgroundImage = `url(${safeSrc})`;
+        (el as HTMLElement).style.backgroundImage = `url(${val})`;
       }
     });
 
     // Links
     const linkEls = doc.querySelectorAll(`[data-bio-link="${key}"]`);
     linkEls.forEach((el) => {
-      const safeHref = isSafeUrl(val) ? String(val) : '#';
-      el.setAttribute('href', safeHref);
+      el.setAttribute('href', String(val));
     });
 
     // Dynamic Bot Messages (if added by user in editor)

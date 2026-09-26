@@ -14,21 +14,8 @@ import {
   updateDoc,
   deleteDoc,
   serverTimestamp,
-  query,
-  where,
 } from 'firebase/firestore';
 import { UserProfile, BioTemplate, BioProject, NicheInfo } from './types';
-import {
-  loadStoredTemplates,
-  saveStoredTemplates,
-  upsertStoredTemplate,
-  removeStoredTemplate,
-  loadStoredProjects,
-  saveStoredProject,
-  removeStoredProject,
-  loadStoredUsers,
-  saveStoredUsers,
-} from './lib/storage';
 import { FirebaseStatusBanner } from './components/FirebaseStatusBanner';
 import { AuthScreen } from './components/AuthScreen';
 import { PendingApprovalScreen } from './components/PendingApprovalScreen';
@@ -55,13 +42,13 @@ function cleanForFirestore<T>(data: T): T {
 function MainApp() {
   const { currentUser, userProfile, isAdmin, isApproved, loading } = useAuth();
 
-  // Firestore real-time & persistent collections state
-  const [users, setUsers] = useState<UserProfile[]>(() => loadStoredUsers());
-  const [templates, setTemplates] = useState<BioTemplate[]>(() => loadStoredTemplates());
-  const [templatesLoading, setTemplatesLoading] = useState(false);
+  // Firestore real-time collections state
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [templates, setTemplates] = useState<BioTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
 
-  const [projects, setProjects] = useState<BioProject[]>(() => loadStoredProjects(currentUser?.uid));
+  const [projects, setProjects] = useState<BioProject[]>([]);
 
   // Navigation states
   const [viewMode, setViewMode] = useState<'admin' | 'client'>('admin');
@@ -73,16 +60,6 @@ function MainApp() {
   const [activeEditingTemplate, setActiveEditingTemplate] = useState<BioTemplate | null>(null);
   const [activeEditingProject, setActiveEditingProject] = useState<BioProject | null>(null);
   const [isMyProjectsOpen, setIsMyProjectsOpen] = useState(false);
-
-  // Sync projects from local cache when user changes
-  useEffect(() => {
-    if (currentUser) {
-      const cached = loadStoredProjects(isAdmin ? undefined : currentUser.uid);
-      if (cached && cached.length > 0) {
-        setProjects(cached);
-      }
-    }
-  }, [currentUser, isAdmin]);
 
   // Sync users real-time when admin is logged in
   useEffect(() => {
@@ -96,54 +73,33 @@ function MainApp() {
           list.push({ ...d.data(), uid: d.id } as UserProfile);
         });
         setUsers(list);
-        saveStoredUsers(list);
       },
-      (err) => {
-        console.warn('[Bio Fácil] Escutando coleção users (usando cache local):', err);
-        const cached = loadStoredUsers();
-        if (cached.length > 0) setUsers(cached);
-      }
+      (err) => console.warn('Erro ao escutar coleção users:', err)
     );
 
     return () => unsubUsers();
   }, [currentUser, isAdmin]);
 
-  // Sync global templates real-time from Firestore with seamless local fallback
+  // Sync global templates real-time from Firestore (the only source of truth)
   useEffect(() => {
     if (!currentUser || !db) return;
+
+    setTemplatesLoading(true);
+    setTemplatesError(null);
 
     const unsubTemplates = onSnapshot(
       collection(db, 'templates'),
       (snapshot) => {
-        const firestoreList: BioTemplate[] = [];
+        const list: BioTemplate[] = [];
         snapshot.forEach((d) => {
-          firestoreList.push(d.data() as BioTemplate);
+          list.push(d.data() as BioTemplate);
         });
-
-        // Merge Firestore templates with local templates to preserve all saved models
-        const map = new Map<string, BioTemplate>();
-        const localList = loadStoredTemplates();
-        for (const t of localList) {
-          if (t && t.templateId) map.set(t.templateId, t);
-        }
-        for (const t of firestoreList) {
-          if (t && t.templateId) {
-            map.set(t.templateId, {
-              ...(map.get(t.templateId) || {}),
-              ...t,
-            });
-          }
-        }
-        const merged = Array.from(map.values());
-        setTemplates(merged);
-        saveStoredTemplates(merged);
+        setTemplates(list);
         setTemplatesLoading(false);
-        setTemplatesError(null);
       },
       (err) => {
-        console.warn('[Bio Fácil] Sincronização Firestore indisponível (usando catálogo persistente local):', err);
-        const localList = loadStoredTemplates();
-        setTemplates(localList);
+        console.error('Erro ao buscar modelos do Firestore:', err);
+        setTemplatesError('NÃO FOI POSSÍVEL CARREGAR OS MODELOS.');
         setTemplatesLoading(false);
       }
     );
@@ -151,51 +107,23 @@ function MainApp() {
     return () => unsubTemplates();
   }, [currentUser]);
 
-  // Sync projects real-time with scoped query
+  // Sync projects real-time for current user or admin
   useEffect(() => {
     if (!currentUser || !db) return;
 
-    const projectsRef = collection(db, 'projects');
-    const projectsQuery = isAdmin
-      ? projectsRef
-      : query(projectsRef, where('ownerUid', '==', currentUser.uid));
-
     const unsubProjects = onSnapshot(
-      projectsQuery,
+      collection(db, 'projects'),
       (snapshot) => {
-        const firestoreProjects: BioProject[] = [];
+        const list: BioProject[] = [];
         snapshot.forEach((d) => {
-          firestoreProjects.push(d.data() as BioProject);
-        });
-
-        const localProjects = loadStoredProjects(isAdmin ? undefined : currentUser.uid);
-        const map = new Map<string, BioProject>();
-        for (const p of localProjects) {
-          const id = p.id || p.projectId;
-          if (id) map.set(id, p);
-        }
-        for (const p of firestoreProjects) {
-          const id = p.id || p.projectId;
-          if (id) {
-            map.set(id, {
-              ...(map.get(id) || {}),
-              ...p,
-            });
+          const p = d.data() as BioProject;
+          if (isAdmin || p.ownerUid === currentUser.uid) {
+            list.push(p);
           }
-        }
-        const merged = Array.from(map.values());
-        setProjects(merged);
-        for (const p of merged) {
-          saveStoredProject(p);
-        }
+        });
+        setProjects(list);
       },
-      (err) => {
-        console.warn('[Bio Fácil] Projetos Firestore (usando armazenamento local):', err);
-        const localProjects = loadStoredProjects(isAdmin ? undefined : currentUser.uid);
-        if (localProjects.length > 0) {
-          setProjects(localProjects);
-        }
-      }
+      (err) => console.warn('Erro ao escutar coleção projects:', err)
     );
 
     return () => unsubProjects();
@@ -212,141 +140,70 @@ function MainApp() {
 
   // Admin user actions
   const handleApproveUser = async (uid: string) => {
-    setUsers((prev) => {
-      const updated = prev.map((u) => (u.uid === uid ? { ...u, status: 'approved' as const } : u));
-      saveStoredUsers(updated);
-      return updated;
+    if (!db) return;
+    await updateDoc(doc(db, 'users', uid), {
+      status: 'approved',
+      approvedAt: serverTimestamp(),
+      approvedBy: currentUser?.uid || 'ADMIN',
+      updatedAt: serverTimestamp(),
     });
-    if (db) {
-      try {
-        await updateDoc(doc(db, 'users', uid), {
-          status: 'approved',
-          approvedAt: serverTimestamp(),
-          approvedBy: currentUser?.uid || 'ADMIN',
-          updatedAt: serverTimestamp(),
-        });
-      } catch (err) {
-        console.warn('[Bio Fácil] Status do usuário salvo localmente:', err);
-      }
-    }
   };
 
   const handleRejectUser = async (uid: string) => {
-    setUsers((prev) => {
-      const updated = prev.map((u) => (u.uid === uid ? { ...u, status: 'rejected' as const } : u));
-      saveStoredUsers(updated);
-      return updated;
+    if (!db) return;
+    await updateDoc(doc(db, 'users', uid), {
+      status: 'rejected',
+      updatedAt: serverTimestamp(),
     });
-    if (db) {
-      try {
-        await updateDoc(doc(db, 'users', uid), {
-          status: 'rejected',
-          updatedAt: serverTimestamp(),
-        });
-      } catch (err) {
-        console.warn('[Bio Fácil] Status do usuário salvo localmente:', err);
-      }
-    }
   };
 
   const handleBlockUser = async (uid: string) => {
-    setUsers((prev) => {
-      const updated = prev.map((u) => (u.uid === uid ? { ...u, status: 'blocked' as const } : u));
-      saveStoredUsers(updated);
-      return updated;
+    if (!db) return;
+    await updateDoc(doc(db, 'users', uid), {
+      status: 'blocked',
+      updatedAt: serverTimestamp(),
     });
-    if (db) {
-      try {
-        await updateDoc(doc(db, 'users', uid), {
-          status: 'blocked',
-          updatedAt: serverTimestamp(),
-        });
-      } catch (err) {
-        console.warn('[Bio Fácil] Status do usuário salvo localmente:', err);
-      }
-    }
   };
 
   const handleUnblockUser = async (uid: string) => {
-    setUsers((prev) => {
-      const updated = prev.map((u) => (u.uid === uid ? { ...u, status: 'approved' as const } : u));
-      saveStoredUsers(updated);
-      return updated;
+    if (!db) return;
+    await updateDoc(doc(db, 'users', uid), {
+      status: 'approved',
+      updatedAt: serverTimestamp(),
     });
-    if (db) {
-      try {
-        await updateDoc(doc(db, 'users', uid), {
-          status: 'approved',
-          updatedAt: serverTimestamp(),
-        });
-      } catch (err) {
-        console.warn('[Bio Fácil] Status do usuário salvo localmente:', err);
-      }
-    }
   };
 
-  // Admin template actions - Permanent save with local cache preservation
+  // Admin template actions - Permanent save to Firestore
   const handleSaveImportedTemplate = async (template: BioTemplate, publishDirectly: boolean) => {
-    const sanitizedData: BioTemplate = cleanForFirestore({
+    if (!db) throw new Error('Banco Firestore indisponível');
+
+    const sanitizedData = cleanForFirestore({
       ...template,
       status: publishDirectly ? 'published' : 'draft',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
 
-    // 1. Immediately save to persistent store so it is NEVER lost
-    const updatedList = upsertStoredTemplate(sanitizedData);
-    setTemplates(updatedList);
-
-    // 2. Synchronize to Firestore
-    if (db) {
-      try {
-        await setDoc(doc(db, 'templates', template.templateId), {
-          ...sanitizedData,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      } catch (dbErr) {
-        console.warn('[Bio Fácil] Modelo salvo localmente. Sincronização Firestore offline:', dbErr);
-      }
-    }
+    await setDoc(doc(db, 'templates', template.templateId), sanitizedData);
   };
 
   const handleToggleTemplateStatus = async (templateId: string, currentStatus: string) => {
+    if (!db) return;
     const newStatus = currentStatus === 'published' ? 'draft' : 'published';
-    const target = templates.find((t) => t.templateId === templateId);
-    if (target) {
-      const updatedTarget: BioTemplate = { ...target, status: newStatus, updatedAt: new Date().toISOString() };
-      const updatedList = upsertStoredTemplate(updatedTarget);
-      setTemplates(updatedList);
-    }
-    if (db) {
-      try {
-        await updateDoc(doc(db, 'templates', templateId), {
-          status: newStatus,
-          updatedAt: serverTimestamp(),
-        });
-      } catch (err) {
-        console.warn('[Bio Fácil] Status do modelo alterado localmente:', err);
-      }
-    }
+    await updateDoc(doc(db, 'templates', templateId), {
+      status: newStatus,
+      updatedAt: serverTimestamp(),
+    });
   };
 
   const handleDeleteTemplate = async (templateId: string) => {
-    const updatedList = removeStoredTemplate(templateId);
-    setTemplates(updatedList);
-    if (db) {
-      try {
-        await deleteDoc(doc(db, 'templates', templateId));
-      } catch (err) {
-        console.warn('[Bio Fácil] Modelo excluído localmente:', err);
-      }
-    }
+    if (!db) return;
+    await deleteDoc(doc(db, 'templates', templateId));
   };
 
   // Client project actions - Saves only in projects/{projectId}, NEVER in templates
   const handleSaveProject = async (projectData: Partial<BioProject>): Promise<BioProject> => {
-    if (!currentUser) throw new Error('Usuário não autenticado');
+    if (!db || !currentUser) throw new Error('Usuário não autenticado');
 
     const projectId = projectData.id || projectData.projectId || `proj-${Date.now()}`;
     const projectName = projectData.projectName || projectData.name || 'Meu BioSite';
@@ -368,69 +225,31 @@ function MainApp() {
       updatedAt: new Date().toISOString(),
     };
 
-    // 1. Immediately persist locally (preserves user work 100%)
-    saveStoredProject(fullProject);
-    setProjects((prev) => {
-      const idx = prev.findIndex((p) => (p.id || p.projectId) === projectId);
-      if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = fullProject;
-        return copy;
-      }
-      return [fullProject, ...prev];
+    const sanitizedProject = cleanForFirestore({
+      ...fullProject,
+      updatedAt: serverTimestamp(),
     });
 
-    // 2. Synchronize to Firestore
-    if (db) {
-      try {
-        const sanitizedProject = cleanForFirestore({
-          ...fullProject,
-          updatedAt: serverTimestamp(),
-        });
-        await setDoc(doc(db, 'projects', projectId), sanitizedProject);
-      } catch (dbErr) {
-        console.warn('[Bio Fácil] Projeto salvo localmente. Sincronização Firestore offline:', dbErr);
-      }
-    }
-
+    await setDoc(doc(db, 'projects', projectId), sanitizedProject);
     return fullProject;
   };
 
   const handleDuplicateProject = async (project: BioProject) => {
-    if (!currentUser) return;
+    if (!db || !currentUser) return;
     const newId = `proj-${Date.now()}`;
     const duplicated: BioProject = {
       ...project,
       id: newId,
-      projectId: newId,
-      ownerUid: currentUser.uid,
       name: `${project.name} (Cópia)`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    saveStoredProject(duplicated);
-    setProjects((prev) => [duplicated, ...prev]);
-
-    if (db) {
-      try {
-        await setDoc(doc(db, 'projects', newId), cleanForFirestore(duplicated));
-      } catch (err) {
-        console.warn('[Bio Fácil] Projeto duplicado localmente:', err);
-      }
-    }
+    await setDoc(doc(db, 'projects', newId), cleanForFirestore(duplicated));
   };
 
   const handleDeleteProject = async (projectId: string) => {
-    removeStoredProject(projectId);
-    setProjects((prev) => prev.filter((p) => (p.id || p.projectId) !== projectId));
-
-    if (db) {
-      try {
-        await deleteDoc(doc(db, 'projects', projectId));
-      } catch (err) {
-        console.warn('[Bio Fácil] Projeto excluído localmente:', err);
-      }
-    }
+    if (!db) return;
+    await deleteDoc(doc(db, 'projects', projectId));
   };
 
   // Customizer start handlers
@@ -515,7 +334,7 @@ function MainApp() {
             />
 
             <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
-              {templatesError && templates.length === 0 && (
+              {templatesError && (
                 <div className="mb-6 p-4 rounded-xl bg-red-950/40 border border-red-500/40 flex items-center justify-between gap-3 text-red-300 text-xs">
                   <div className="flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
@@ -591,7 +410,7 @@ function MainApp() {
             />
 
             <main className="flex-1">
-              {templatesError && templates.length === 0 && (
+              {templatesError && (
                 <div className="max-w-4xl mx-auto mt-6 p-4 rounded-xl bg-red-950/40 border border-red-500/40 flex items-center justify-between gap-3 text-red-300 text-xs">
                   <div className="flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
