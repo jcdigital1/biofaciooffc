@@ -193,12 +193,6 @@ export const AuthScreen: React.FC = () => {
                     )}
                   </button>
                 </div>
-
-                <div className="pt-3 border-t border-[#18221c] text-center">
-                  <p className="text-[11px] text-[#87938B]">
-                    Acesso seguro via Firebase Authentication.
-                  </p>
-                </div>
               </form>
             ) : (
               <form onSubmit={handleRegisterSubmit} className="space-y-4">
