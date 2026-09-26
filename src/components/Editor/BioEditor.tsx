@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { BioTemplate, BioProject, EditorField, ColorItem } from '../../types';
-import { preparePreviewHtml, generateExportHtml } from '../../lib/bioPreview';
+import { BioTemplate, BioProject, EditorField } from '../../types';
+import { preparePreviewHtml } from '../../lib/bioPreview';
+import { exportBioSiteZip, triggerZipDownload, ZipExportProgress } from '../../lib/zipExporter';
 import { PRESET_PALETTES, ColorPalettePreset } from '../../constants/palettes';
 import {
   ArrowLeft,
@@ -25,6 +26,8 @@ import {
   X,
   Layers,
   ChevronRight,
+  RefreshCw,
+  FolderCheck,
 } from 'lucide-react';
 
 interface BioEditorProps {
@@ -44,9 +47,12 @@ export const BioEditor: React.FC<BioEditorProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Project state
+  const [projectId] = useState<string>(existingProject?.id || `proj_${Date.now()}`);
   const [projectName, setProjectName] = useState(
     existingProject?.name || `${template.name} - Meu BioSite`
   );
+  const [isNameModalOpen, setIsNameModalOpen] = useState(false);
+  const [tempProjectName, setTempProjectName] = useState(projectName);
 
   // Field values state
   const [fieldValues, setFieldValues] = useState<Record<string, any>>(() => {
@@ -65,7 +71,6 @@ export const BioEditor: React.FC<BioEditorProps> = ({
     const orig: Record<string, string> = {
       ...(template.themeMetadata?.cssVariables || {}),
     };
-    // Include colors mapped from schema
     template.editorSchema?.colors?.forEach((c) => {
       if (c.cssVarName) {
         orig[c.cssVarName] = c.defaultValue;
@@ -95,11 +100,18 @@ export const BioEditor: React.FC<BioEditorProps> = ({
 
   const [deviceView, setDeviceView] = useState<'mobile' | 'desktop'>('mobile');
 
-  // Save states
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'unsaved' | 'saving' | 'saved' | 'error'>('idle');
+  // Save states: 'idle' | 'unsaved' | 'saving' | 'saved' | 'error'
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'unsaved' | 'saving' | 'saved' | 'error'>(
+    existingProject ? 'saved' : 'idle'
+  );
   const [savedProject, setSavedProject] = useState<BioProject | null>(existingProject || null);
-  const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+
+  // ZIP download states
+  const [isDownloadingZip, setIsDownloadingZip] = useState(false);
+  const [zipProgress, setZipProgress] = useState<ZipExportProgress | null>(null);
+  const [zipSuccessModal, setZipSuccessModal] = useState(false);
+  const [zipErrorMessage, setZipErrorMessage] = useState<string | null>(null);
 
   // Prepare iframe HTML once
   const initialIframeHtml = useMemo(() => {
@@ -169,7 +181,10 @@ export const BioEditor: React.FC<BioEditorProps> = ({
         else if (key === 'instagram') finalLabel = 'Instagram';
         else if (key === 'maps_link' || key === 'address_text') finalLabel = 'Localização & Contato';
 
-        const effectiveValue = fieldValues[key] !== undefined ? fieldValues[key] : (currentValue || existingField?.defaultValue || '');
+        const effectiveValue =
+          fieldValues[key] !== undefined
+            ? fieldValues[key]
+            : currentValue || existingField?.defaultValue || '';
 
         setSelectedFieldKey(key);
         setSelectedFieldData({
@@ -180,7 +195,6 @@ export const BioEditor: React.FC<BioEditorProps> = ({
           defaultValue: existingField?.defaultValue || currentValue,
         });
 
-        // Switch to preview view if on colors tab
         if (activeTab === 'colors') {
           setActiveTab('preview');
         }
@@ -213,18 +227,19 @@ export const BioEditor: React.FC<BioEditorProps> = ({
   const handleApplyPalette = (palette: ColorPalettePreset) => {
     const newTheme: Record<string, string> = { ...themeValues };
 
-    // Map semantic roles to active CSS variables
     Object.keys(newTheme).forEach((vName) => {
       const lower = vName.toLowerCase();
       if (lower.includes('primary')) newTheme[vName] = palette.colors.primary;
       else if (lower.includes('secondary')) newTheme[vName] = palette.colors.secondary;
-      else if (lower.includes('background') || lower === '--bg' || lower.includes('bg-')) newTheme[vName] = palette.colors.background;
-      else if (lower.includes('surface') || lower.includes('card')) newTheme[vName] = palette.colors.surface;
-      else if (lower.includes('text') || lower.includes('foreground')) newTheme[vName] = palette.colors.text;
+      else if (lower.includes('background') || lower === '--bg' || lower.includes('bg-'))
+        newTheme[vName] = palette.colors.background;
+      else if (lower.includes('surface') || lower.includes('card'))
+        newTheme[vName] = palette.colors.surface;
+      else if (lower.includes('text') || lower.includes('foreground'))
+        newTheme[vName] = palette.colors.text;
       else if (lower.includes('muted')) newTheme[vName] = palette.colors.muted;
     });
 
-    // Also support fallback --bio-* variables
     newTheme['--bio-primary'] = palette.colors.primary;
     newTheme['--bio-secondary'] = palette.colors.secondary;
     newTheme['--bio-background'] = palette.colors.background;
@@ -256,52 +271,115 @@ export const BioEditor: React.FC<BioEditorProps> = ({
     reader.readAsDataURL(file);
   };
 
-  // Save Project Handler
-  const handleSave = async () => {
+  // SAVE PROJECT HANDLER (Always saves the exact current state in Firestore)
+  const executeSaveProject = async (targetName?: string): Promise<BioProject> => {
     setSaveStatus('saving');
     setSaveErrorMessage(null);
 
+    const finalName = (targetName || projectName).trim() || 'Meu BioSite';
+
     try {
+      // Extract links & assets from fieldValues for full Firestore document fidelity
+      const linksMap: Record<string, string> = {};
+      const assetsMap: Record<string, string> = {};
+
+      Object.entries(fieldValues).forEach(([k, v]) => {
+        if (typeof v === 'string') {
+          if (v.startsWith('data:image/') || v.startsWith('http://') || v.startsWith('https://')) {
+            if (
+              k.includes('logo') ||
+              k.includes('image') ||
+              k.includes('banner') ||
+              k.includes('photo') ||
+              k.includes('avatar')
+            ) {
+              assetsMap[k] = v;
+            }
+          }
+          if (
+            k.includes('whatsapp') ||
+            k.includes('instagram') ||
+            k.includes('maps') ||
+            k.includes('link') ||
+            k.includes('url')
+          ) {
+            linksMap[k] = v;
+          }
+        }
+      });
+
       const projectPayload: Partial<BioProject> = {
-        id: savedProject?.id || `proj-${Date.now()}`,
-        name: projectName.trim(),
+        id: savedProject?.id || projectId,
+        projectId: savedProject?.id || projectId,
+        name: finalName,
+        projectName: finalName,
         templateId: template.templateId,
         templateVersion: template.version,
         templateName: template.name,
         nicheId: template.nicheId,
         values: fieldValues,
         theme: themeValues,
+        assets: assetsMap,
+        links: linksMap,
         updatedAt: new Date().toISOString(),
       };
 
       const result = await onSaveProject(projectPayload);
       setSavedProject(result);
+      setProjectName(finalName);
       setSaveStatus('saved');
+      return result;
     } catch (err: any) {
+      console.error('Erro ao salvar projeto:', err);
       setSaveStatus('error');
-      setSaveErrorMessage(err?.message || 'Falha ao salvar no Firestore');
+      setSaveErrorMessage(err?.message || 'Falha ao persistir projeto no Firestore');
+      throw err;
     }
   };
 
-  // Standalone Download Handler
-  const handleDownload = () => {
-    const cleanHtml = generateExportHtml(
-      template.sourceHtml,
-      fieldValues,
-      themeValues
-    );
+  const handleSaveButtonClick = () => {
+    // If project is brand new and has default placeholder name, offer name dialog
+    if (!savedProject && projectName.includes('Meu BioSite')) {
+      setTempProjectName(projectName);
+      setIsNameModalOpen(true);
+      return;
+    }
+    executeSaveProject();
+  };
 
-    const blob = new Blob([cleanHtml], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${projectName.toLowerCase().replace(/[^a-z0-9]/g, '-') || 'biosite'}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const handleConfirmNameAndSave = async () => {
+    setIsNameModalOpen(false);
+    await executeSaveProject(tempProjectName);
+  };
 
-    setShowDownloadModal(true);
+  // BAIXAR ZIP (Vercel Ready)
+  const handleDownloadZipClick = async () => {
+    setIsDownloadingZip(true);
+    setZipErrorMessage(null);
+
+    try {
+      // If there are unsaved changes or project has not been saved yet, save automatically first!
+      if (saveStatus !== 'saved') {
+        await executeSaveProject();
+      }
+
+      const blob = await exportBioSiteZip(
+        template.sourceHtml,
+        fieldValues,
+        themeValues,
+        projectName,
+        (progress) => setZipProgress(progress)
+      );
+
+      triggerZipDownload(blob, projectName);
+      setZipSuccessModal(true);
+    } catch (err: any) {
+      console.error('Erro ao gerar ZIP:', err);
+      setZipErrorMessage('NÃO FOI POSSÍVEL GERAR O ZIP. TENTE NOVAMENTE.');
+    } finally {
+      setIsDownloadingZip(false);
+      setZipProgress(null);
+    }
   };
 
   // Colors list from theme
@@ -325,8 +403,8 @@ export const BioEditor: React.FC<BioEditorProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#050706] text-[#F5FFF8] overflow-hidden select-none">
       {/* Top Navbar */}
-      <header className="h-14 border-b border-[#18221c] bg-[#070b09] px-4 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
+      <header className="h-14 border-b border-[#18221c] bg-[#070b09] px-3 sm:px-4 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3">
           <button
             onClick={onClose}
             className="p-2 rounded-xl bg-[#111713] hover:bg-[#18221c] text-[#87938B] hover:text-[#F5FFF8] transition cursor-pointer"
@@ -336,15 +414,17 @@ export const BioEditor: React.FC<BioEditorProps> = ({
           </button>
 
           <div>
-            <input
-              type="text"
-              value={projectName}
-              onChange={(e) => {
-                setProjectName(e.target.value);
-                setSaveStatus('unsaved');
-              }}
-              className="bg-transparent font-bold text-sm text-[#F5FFF8] border-b border-transparent hover:border-[#18221c] focus:border-[#36FF88] outline-none px-1 py-0.5"
-            />
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={projectName}
+                onChange={(e) => {
+                  setProjectName(e.target.value);
+                  setSaveStatus('unsaved');
+                }}
+                className="bg-transparent font-bold text-xs sm:text-sm text-[#F5FFF8] border-b border-transparent hover:border-[#18221c] focus:border-[#36FF88] outline-none px-1 py-0.5 max-w-[150px] sm:max-w-[240px]"
+              />
+            </div>
             <div className="text-[10px] text-[#87938B] font-mono px-1">
               Modelo: <span className="text-[#36FF88]">{template.name}</span>
             </div>
@@ -355,47 +435,50 @@ export const BioEditor: React.FC<BioEditorProps> = ({
         <div className="flex items-center gap-1 bg-[#111713] p-1 rounded-xl border border-[#1e2a22]">
           <button
             onClick={() => setActiveTab('preview')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
               activeTab === 'preview'
                 ? 'bg-[#36FF88] text-[#050706] shadow-[0_0_15px_rgba(54,255,136,0.3)]'
                 : 'text-[#87938B] hover:text-[#F5FFF8]'
             }`}
           >
             <MousePointerClick className="w-3.5 h-3.5" />
-            <span>Editar pelo Preview</span>
+            <span className="hidden sm:inline">Editar pelo Preview</span>
+            <span className="sm:hidden">Preview</span>
           </button>
 
           <button
             onClick={() => setActiveTab('colors')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
               activeTab === 'colors'
                 ? 'bg-[#36FF88] text-[#050706] shadow-[0_0_15px_rgba(54,255,136,0.3)]'
                 : 'text-[#87938B] hover:text-[#F5FFF8]'
             }`}
           >
             <Palette className="w-3.5 h-3.5" />
-            <span>Cores & Paletas</span>
+            <span>Cores</span>
           </button>
 
           <button
             onClick={() => setActiveTab('allFields')}
-            className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+            className={`hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
               activeTab === 'allFields'
                 ? 'bg-[#36FF88] text-[#050706]'
                 : 'text-[#87938B] hover:text-[#F5FFF8]'
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
-            <span>Todos os Campos</span>
+            <span>Campos</span>
           </button>
         </div>
 
-        {/* Device Switcher (Desktop vs Mobile Preview frame) */}
+        {/* Device Switcher (Desktop Preview Frame) */}
         <div className="hidden lg:flex items-center gap-1 bg-[#111713] p-1 rounded-xl border border-[#1e2a22]">
           <button
             onClick={() => setDeviceView('mobile')}
             className={`p-1.5 rounded-lg transition cursor-pointer ${
-              deviceView === 'mobile' ? 'bg-[#1e2a22] text-[#36FF88]' : 'text-[#87938B] hover:text-[#F5FFF8]'
+              deviceView === 'mobile'
+                ? 'bg-[#1e2a22] text-[#36FF88]'
+                : 'text-[#87938B] hover:text-[#F5FFF8]'
             }`}
             title="Visualização Celular"
           >
@@ -404,7 +487,9 @@ export const BioEditor: React.FC<BioEditorProps> = ({
           <button
             onClick={() => setDeviceView('desktop')}
             className={`p-1.5 rounded-lg transition cursor-pointer ${
-              deviceView === 'desktop' ? 'bg-[#1e2a22] text-[#36FF88]' : 'text-[#87938B] hover:text-[#F5FFF8]'
+              deviceView === 'desktop'
+                ? 'bg-[#1e2a22] text-[#36FF88]'
+                : 'text-[#87938B] hover:text-[#F5FFF8]'
             }`}
             title="Visualização Desktop"
           >
@@ -412,37 +497,75 @@ export const BioEditor: React.FC<BioEditorProps> = ({
           </button>
         </div>
 
-        {/* Save & Download Actions */}
-        <div className="flex items-center gap-2">
+        {/* Desktop Save & Download Actions in Top Bar */}
+        <div className="hidden sm:flex items-center gap-2.5">
           {saveStatus === 'unsaved' && (
-            <span className="hidden xl:inline-flex items-center gap-1 text-[11px] font-mono text-amber-400">
+            <span className="hidden xl:inline-flex items-center gap-1.5 text-[11px] font-mono text-amber-400 font-bold">
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-              <span>Alterações não salvas</span>
+              <span>● ALTERAÇÕES NÃO SALVAS</span>
             </span>
           )}
 
           {saveStatus === 'saved' && (
             <span className="hidden xl:inline-flex items-center gap-1 text-[11px] font-mono text-[#36FF88] font-bold">
               <Check className="w-3.5 h-3.5" />
-              <span>✓ Salvo</span>
+              <span>✓ SALVO</span>
             </span>
           )}
 
-          <button
-            onClick={handleSave}
-            disabled={saveStatus === 'saving'}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#111713] hover:bg-[#18221c] border border-[#36FF88]/40 hover:border-[#36FF88] text-[#36FF88] text-xs font-bold rounded-xl transition cursor-pointer shadow-[0_0_12px_rgba(54,255,136,0.15)]"
-          >
-            <Save className="w-3.5 h-3.5" />
-            <span>{saveStatus === 'saving' ? 'SALVANDO...' : 'SALVAR'}</span>
-          </button>
+          {saveStatus === 'error' && (
+            <span className="hidden xl:inline-flex items-center gap-1 text-[11px] font-mono text-red-400">
+              <AlertCircle className="w-3.5 h-3.5" />
+              <span>Erro ao salvar</span>
+            </span>
+          )}
 
+          {/* Primary Action Button */}
+          {saveStatus === 'saved' ? (
+            <button
+              onClick={handleSaveButtonClick}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#111713] hover:bg-[#18221c] border border-[#36FF88]/40 hover:border-[#36FF88] text-[#36FF88] text-xs font-bold rounded-xl transition cursor-pointer"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>✓ SALVO</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleSaveButtonClick}
+              disabled={saveStatus === 'saving'}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-[#36FF88] hover:bg-[#00E86B] disabled:opacity-50 text-[#050706] text-xs font-black rounded-xl shadow-[0_0_15px_rgba(54,255,136,0.25)] transition cursor-pointer"
+            >
+              {saveStatus === 'saving' ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>SALVANDO...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5" />
+                  <span>SALVAR PROJETO</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {/* Highlighted BAIXAR ZIP Button */}
           <button
-            onClick={handleDownload}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#36FF88] hover:bg-[#00E86B] text-[#050706] text-xs font-black rounded-xl shadow-[0_0_15px_rgba(54,255,136,0.25)] transition cursor-pointer"
+            onClick={handleDownloadZipClick}
+            disabled={isDownloadingZip}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-black rounded-xl transition cursor-pointer ${
+              saveStatus === 'saved'
+                ? 'bg-[#36FF88] hover:bg-[#00E86B] text-[#050706] shadow-[0_0_15px_rgba(54,255,136,0.3)]'
+                : 'bg-[#111713] hover:bg-[#18221c] border border-[#1e2a22] text-[#87938B] hover:text-[#F5FFF8]'
+            }`}
+            title={saveStatus === 'saved' ? 'Baixar ZIP pronto para Vercel' : 'Salva o projeto e baixa o ZIP'}
           >
-            <Download className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">BAIXAR BIOSITE</span>
+            {isDownloadingZip ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Download className="w-3.5 h-3.5" />
+            )}
+            <span>BAIXAR ZIP</span>
           </button>
         </div>
       </header>
@@ -450,11 +573,12 @@ export const BioEditor: React.FC<BioEditorProps> = ({
       {/* Main Workspace */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* IFRAME PREVIEW (CENTER / MAIN CANVAS) */}
-        <div className="flex-1 bg-[#030504] overflow-auto flex items-center justify-center p-3 sm:p-6 relative">
+        {/* Added pb-24 on mobile to prevent the fixed bottom bar from covering content */}
+        <div className="flex-1 bg-[#030504] overflow-auto flex items-center justify-center p-3 sm:p-6 pb-24 sm:pb-6 relative">
           <div
             className={`w-full ${
               deviceView === 'mobile' ? 'max-w-[420px]' : 'max-w-[880px]'
-            } h-[85vh] bg-[#070b09] rounded-2xl border-4 border-[#18221c] overflow-hidden shadow-2xl relative transition-all duration-200`}
+            } h-[82vh] bg-[#070b09] rounded-2xl border-4 border-[#18221c] overflow-hidden shadow-2xl relative transition-all duration-200`}
           >
             <iframe
               ref={iframeRef}
@@ -467,9 +591,9 @@ export const BioEditor: React.FC<BioEditorProps> = ({
         </div>
 
         {/* CONTEXTUAL SIDEBAR / DRAWER */}
-        {/* Case 1: Colors & Palettes Panel */}
+        {/* Colors & Palettes Panel */}
         {activeTab === 'colors' && (
-          <div className="w-full sm:w-[380px] bg-[#0B0F0D] border-l border-[#18221c] flex flex-col shrink-0 shadow-2xl z-20 overflow-hidden">
+          <div className="w-full sm:w-[380px] bg-[#0B0F0D] border-l border-[#18221c] flex flex-col shrink-0 shadow-2xl z-20 overflow-hidden pb-20 sm:pb-0">
             <div className="p-4 border-b border-[#18221c] flex items-center justify-between bg-[#070b09]">
               <div className="flex items-center gap-2">
                 <Palette className="w-4 h-4 text-[#36FF88]" />
@@ -536,9 +660,7 @@ export const BioEditor: React.FC<BioEditorProps> = ({
                         <div className="text-xs font-bold text-[#F5FFF8] group-hover:text-[#36FF88] transition">
                           {pal.name}
                         </div>
-                        <div className="text-[10px] text-[#87938B]">
-                          Harmonia balanceada
-                        </div>
+                        <div className="text-[10px] text-[#87938B]">Harmonia balanceada</div>
                       </div>
 
                       {/* Grouped Bubbles */}
@@ -568,9 +690,9 @@ export const BioEditor: React.FC<BioEditorProps> = ({
           </div>
         )}
 
-        {/* Case 2: Direct-Clicked Element Contextual Editor */}
+        {/* Direct-Clicked Element Contextual Editor */}
         {activeTab === 'preview' && selectedFieldData && (
-          <div className="absolute sm:relative bottom-0 sm:bottom-auto right-0 w-full sm:w-[380px] bg-[#0B0F0D] border-t sm:border-t-0 sm:border-l border-[#18221c] flex flex-col shrink-0 shadow-2xl z-30 max-h-[75vh] sm:max-h-none overflow-hidden">
+          <div className="absolute sm:relative bottom-16 sm:bottom-auto right-0 w-full sm:w-[380px] bg-[#0B0F0D] border-t sm:border-t-0 sm:border-l border-[#18221c] flex flex-col shrink-0 shadow-2xl z-30 max-h-[70vh] sm:max-h-none overflow-hidden pb-16 sm:pb-0">
             {/* Header */}
             <div className="p-4 border-b border-[#18221c] flex items-center justify-between bg-[#070b09]">
               <div>
@@ -794,16 +916,16 @@ export const BioEditor: React.FC<BioEditorProps> = ({
                   onClick={() => setSelectedFieldData(null)}
                   className="w-full py-2.5 bg-[#36FF88] hover:bg-[#00E86B] text-[#050706] font-bold text-xs rounded-xl shadow-[0_0_15px_rgba(54,255,136,0.25)] transition cursor-pointer"
                 >
-                  CONCLUÍDO
+                  PRONTO
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Case 3: All Fields List View */}
+        {/* All Fields List View */}
         {activeTab === 'allFields' && (
-          <div className="w-full sm:w-[380px] bg-[#0B0F0D] border-l border-[#18221c] flex flex-col shrink-0 shadow-2xl z-20 overflow-hidden">
+          <div className="w-full sm:w-[380px] bg-[#0B0F0D] border-l border-[#18221c] flex flex-col shrink-0 shadow-2xl z-20 overflow-hidden pb-20 sm:pb-0">
             <div className="p-4 border-b border-[#18221c] flex items-center justify-between bg-[#070b09]">
               <div className="flex items-center gap-2">
                 <Layers className="w-4 h-4 text-[#36FF88]" />
@@ -832,9 +954,7 @@ export const BioEditor: React.FC<BioEditorProps> = ({
                   className="p-3 rounded-xl bg-[#111713] hover:bg-[#18221c] border border-[#1e2a22] hover:border-[#36FF88]/40 flex items-center justify-between transition cursor-pointer"
                 >
                   <div className="min-w-0 pr-2">
-                    <div className="text-xs font-bold text-[#F5FFF8] truncate">
-                      {field.label}
-                    </div>
+                    <div className="text-xs font-bold text-[#F5FFF8] truncate">{field.label}</div>
                     <div className="text-[10px] font-mono text-[#87938B] truncate">
                       {String(fieldValues[field.key] ?? field.defaultValue ?? '—')}
                     </div>
@@ -847,24 +967,142 @@ export const BioEditor: React.FC<BioEditorProps> = ({
         )}
       </div>
 
-      {/* DOWNLOAD SUCCESS MODAL */}
-      {showDownloadModal && (
+      {/* MOBILE ELEGANT FIXED BOTTOM ACTION BAR */}
+      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#070b09]/95 backdrop-blur-md border-t border-[#18221c] px-4 py-2.5 flex items-center justify-between gap-2 shadow-[0_-10px_25px_rgba(0,0,0,0.8)]">
+        {saveStatus === 'saved' ? (
+          <>
+            <button
+              onClick={handleSaveButtonClick}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-[#111713] border border-[#36FF88]/40 text-[#36FF88] font-bold text-xs rounded-xl transition cursor-pointer"
+            >
+              <Check className="w-4 h-4 text-[#36FF88]" />
+              <span>✓ SALVO</span>
+            </button>
+
+            <button
+              onClick={handleDownloadZipClick}
+              disabled={isDownloadingZip}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-[#36FF88] hover:bg-[#00E86B] text-[#050706] font-black text-xs rounded-xl shadow-[0_0_15px_rgba(54,255,136,0.3)] transition cursor-pointer"
+            >
+              {isDownloadingZip ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5" />
+              )}
+              <span>BAIXAR ZIP</span>
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-1.5 text-[11px] font-mono text-amber-400 font-bold shrink-0">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+              <span>● ALTERAÇÕES NÃO SALVAS</span>
+            </div>
+
+            <button
+              onClick={handleSaveButtonClick}
+              disabled={saveStatus === 'saving'}
+              className="flex-1 max-w-[180px] flex items-center justify-center gap-1.5 py-2.5 px-3 bg-[#36FF88] hover:bg-[#00E86B] text-[#050706] font-black text-xs rounded-xl shadow-[0_0_15px_rgba(54,255,136,0.3)] transition cursor-pointer"
+            >
+              {saveStatus === 'saving' ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>SALVANDO...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5" />
+                  <span>SALVAR PROJETO</span>
+                </>
+              )}
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* MODAL 1: FIRST SAVE PROJECT NAME */}
+      {isNameModalOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="max-w-md w-full bg-[#0B0F0D] border border-[#18221c] rounded-2xl p-6 shadow-2xl space-y-4">
+            <h3 className="text-base font-bold text-[#F5FFF8]">Nome do Seu Projeto</h3>
+            <p className="text-xs text-[#87938B]">
+              Dê um nome para identificar este biosite na sua conta.
+            </p>
+
+            <input
+              type="text"
+              value={tempProjectName}
+              onChange={(e) => setTempProjectName(e.target.value)}
+              placeholder="Ex: Minha Barbearia VIP"
+              className="w-full bg-[#111713] border border-[#1e2a22] focus:border-[#36FF88] rounded-xl px-4 py-3 text-sm text-[#F5FFF8] outline-none"
+              autoFocus
+            />
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsNameModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-[#87938B] hover:text-[#F5FFF8]"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmNameAndSave}
+                className="px-5 py-2.5 bg-[#36FF88] hover:bg-[#00E86B] text-[#050706] font-bold text-xs rounded-xl shadow-[0_0_15px_rgba(54,255,136,0.25)] transition cursor-pointer"
+              >
+                SALVAR PROJETO
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: ZIP GENERATION PROGRESS */}
+      {zipProgress && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="max-w-sm w-full bg-[#0B0F0D] border border-[#36FF88]/40 rounded-2xl p-6 text-center shadow-2xl space-y-4">
+            <div className="w-12 h-12 mx-auto rounded-full bg-[#36FF88]/10 border border-[#36FF88]/30 flex items-center justify-center text-[#36FF88]">
+              <RefreshCw className="w-6 h-6 animate-spin" />
+            </div>
+            <h4 className="text-sm font-bold text-white tracking-wider font-mono">
+              {zipProgress.message}
+            </h4>
+            <p className="text-[11px] text-[#87938B]">
+              Organizando index.html na raiz e empacotando para deploy imediato...
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: ZIP DOWNLOAD SUCCESS & VERCEL READY CELEBRATION */}
+      {zipSuccessModal && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
-          <div className="max-w-md w-full bg-[#0B0F0D] border border-[#36FF88]/40 rounded-2xl p-6 sm:p-8 text-center shadow-2xl">
-            <div className="w-16 h-16 mx-auto rounded-full bg-[#36FF88]/10 border border-[#36FF88]/30 flex items-center justify-center text-[#36FF88] mb-5 shadow-[0_0_25px_rgba(54,255,136,0.3)]">
+          <div className="max-w-md w-full bg-[#0B0F0D] border border-[#36FF88]/40 rounded-2xl p-6 sm:p-8 text-center shadow-2xl space-y-4">
+            <div className="w-16 h-16 mx-auto rounded-full bg-[#36FF88]/10 border border-[#36FF88]/30 flex items-center justify-center text-[#36FF88] shadow-[0_0_25px_rgba(54,255,136,0.3)]">
               <Check className="w-8 h-8" />
             </div>
 
-            <h3 className="text-xl font-bold text-white mb-2">SEU BIOSITE ESTÁ PRONTO ✓</h3>
+            <h3 className="text-xl font-bold text-white mb-1">ZIP PRONTO PARA PUBLICAR NA VERCEL!</h3>
 
-            <p className="text-xs text-[#87938B] leading-relaxed mb-6">
-              O arquivo HTML do biosite <strong className="text-white">"{projectName}"</strong> foi gerado e baixado.
-              Ele é 100% estático e independente, com todos os seus textos, links, imagens e cores salvas.
+            <p className="text-xs text-[#87938B] leading-relaxed">
+              O arquivo <strong className="text-white">"{projectName}.zip"</strong> foi gerado e baixado com todas as suas personalizações.
             </p>
 
+            <div className="bg-[#111713] border border-[#1e2a22] rounded-xl p-4 text-left space-y-2 text-xs">
+              <div className="font-bold text-[#36FF88] flex items-center gap-1.5">
+                <span>🚀 Estrutura de Hospedagem:</span>
+              </div>
+              <ul className="text-[11px] text-[#87938B] space-y-1 list-disc list-inside">
+                <li><strong className="text-white">index.html</strong> está posicionado na raiz do arquivo ZIP.</li>
+                <li>Imagens e estilos estão integrados e independentes.</li>
+                <li>Basta arrastar para a <strong className="text-white">Vercel</strong> ou qualquer hospedagem estática!</li>
+              </ul>
+            </div>
+
             <button
-              onClick={() => setShowDownloadModal(false)}
-              className="w-full py-3 bg-[#36FF88] hover:bg-[#00E86B] text-[#050706] font-extrabold text-xs rounded-xl transition cursor-pointer"
+              onClick={() => setZipSuccessModal(false)}
+              className="w-full py-3 bg-[#36FF88] hover:bg-[#00E86B] text-[#050706] font-extrabold text-xs rounded-xl shadow-[0_0_15px_rgba(54,255,136,0.25)] transition cursor-pointer"
             >
               FECHAR E CONTINUAR
             </button>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { BioProject, BioTemplate } from '../../types';
-import { generateExportHtml } from '../../lib/bioPreview';
-import { X, Edit, Copy, Trash2, Download, FolderKanban, Check, Sparkles } from 'lucide-react';
+import { exportBioSiteZip, triggerZipDownload, ZipExportProgress } from '../../lib/zipExporter';
+import { X, Edit, Copy, Trash2, Download, FolderKanban, Check, RefreshCw, AlertCircle } from 'lucide-react';
 
 interface MyProjectsModalProps {
   isOpen: boolean;
@@ -22,30 +22,39 @@ export const MyProjectsModal: React.FC<MyProjectsModalProps> = ({
   onDuplicateProject,
   onDeleteProject,
 }) => {
-  const [downloadSuccessModal, setDownloadSuccessModal] = useState<string | null>(null);
+  const [downloadingProjectId, setDownloadingProjectId] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<ZipExportProgress | null>(null);
+  const [downloadSuccessName, setDownloadSuccessName] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleDownload = (project: BioProject) => {
-    // Find base template sourceHtml
+  const handleDownloadZip = async (project: BioProject) => {
     const tpl = templates.find((t) => t.templateId === project.templateId);
     const source = tpl?.sourceHtml || '<html><body>Bio Fácil</body></html>';
 
-    const standaloneHtml = generateExportHtml(source, project.values || {}, project.theme || {});
+    setDownloadingProjectId(project.id);
+    setDownloadError(null);
 
-    // Create standalone blob and trigger download
-    const blob = new Blob([standaloneHtml], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${project.name.toLowerCase().replace(/[^a-z0-9]/g, '-') || 'meu-biosite'}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      const blob = await exportBioSiteZip(
+        source,
+        project.values || {},
+        project.theme || {},
+        project.name,
+        (progress) => setDownloadProgress(progress)
+      );
 
-    setDownloadSuccessModal(project.name);
+      triggerZipDownload(blob, project.name);
+      setDownloadSuccessName(project.name);
+    } catch (err: any) {
+      console.error('Erro ao gerar ZIP:', err);
+      setDownloadError('NÃO FOI POSSÍVEL GERAR O ZIP. TENTE NOVAMENTE.');
+    } finally {
+      setDownloadingProjectId(null);
+      setDownloadProgress(null);
+    }
   };
 
   const handleDuplicate = async (project: BioProject) => {
@@ -77,9 +86,9 @@ export const MyProjectsModal: React.FC<MyProjectsModalProps> = ({
               <FolderKanban className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-[#F5FFF8]">Meus Biosites Salvos</h2>
+              <h2 className="text-base font-bold text-[#F5FFF8]">Meus Projetos Salvos</h2>
               <p className="text-xs text-[#87938B]">
-                Sincronizados em tempo real na nuvem Firestore da sua conta.
+                Sincronizados em tempo real no Firestore da sua conta.
               </p>
             </div>
           </div>
@@ -94,6 +103,13 @@ export const MyProjectsModal: React.FC<MyProjectsModalProps> = ({
 
         {/* Content list */}
         <div className="p-5 overflow-y-auto space-y-3 flex-1">
+          {downloadError && (
+            <div className="p-3.5 bg-red-950/40 border border-red-500/40 rounded-xl text-xs text-red-300 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+              <span>{downloadError}</span>
+            </div>
+          )}
+
           {projects.length === 0 ? (
             <div className="py-12 text-center text-[#87938B]">
               <p className="text-sm">Você ainda não possui projetos salvos.</p>
@@ -110,7 +126,9 @@ export const MyProjectsModal: React.FC<MyProjectsModalProps> = ({
                   <div className="flex items-center gap-2 mt-1 text-[11px] text-[#87938B] font-mono">
                     <span className="text-[#36FF88]">{project.templateName}</span>
                     <span>•</span>
-                    <span>{project.updatedAt ? new Date(project.updatedAt).toLocaleDateString('pt-BR') : 'Hoje'}</span>
+                    <span>
+                      {project.updatedAt ? new Date(project.updatedAt).toLocaleDateString('pt-BR') : 'Hoje'}
+                    </span>
                   </div>
                 </div>
 
@@ -121,20 +139,25 @@ export const MyProjectsModal: React.FC<MyProjectsModalProps> = ({
                       onContinueEditing(project);
                       onClose();
                     }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#36FF88] hover:bg-[#00E86B] text-[#050706] text-xs font-bold rounded-lg transition cursor-pointer shadow-[0_0_12px_rgba(54,255,136,0.25)]"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#111713] hover:bg-[#18221c] border border-[#1e2a22] text-[#F5FFF8] text-xs font-bold rounded-lg transition cursor-pointer"
                     title="Continuar editando"
                   >
-                    <Edit className="w-3.5 h-3.5" />
-                    <span>EDITAR</span>
+                    <Edit className="w-3.5 h-3.5 text-[#36FF88]" />
+                    <span>CONTINUAR EDITANDO</span>
                   </button>
 
                   <button
-                    onClick={() => handleDownload(project)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0B0F0D] hover:bg-[#18221c] border border-[#1e2a22] text-[#F5FFF8] text-xs font-semibold rounded-lg transition cursor-pointer"
-                    title="Baixar biosite estático"
+                    disabled={downloadingProjectId === project.id}
+                    onClick={() => handleDownloadZip(project)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#36FF88] hover:bg-[#00E86B] disabled:opacity-50 text-[#050706] text-xs font-black rounded-lg transition cursor-pointer shadow-[0_0_12px_rgba(54,255,136,0.25)]"
+                    title="Baixar ZIP pronto para Vercel"
                   >
-                    <Download className="w-3.5 h-3.5 text-[#36FF88]" />
-                    <span>BAIXAR</span>
+                    {downloadingProjectId === project.id ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5" />
+                    )}
+                    <span>BAIXAR ZIP</span>
                   </button>
 
                   <button
@@ -161,22 +184,51 @@ export const MyProjectsModal: React.FC<MyProjectsModalProps> = ({
         </div>
       </div>
 
-      {/* Success Modal when downloaded */}
-      {downloadSuccessModal && (
+      {/* Progress Dialog when Generating ZIP */}
+      {downloadProgress && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="max-w-md w-full bg-[#0B0F0D] border border-[#36FF88]/40 rounded-2xl p-6 text-center shadow-2xl">
-            <div className="w-14 h-14 mx-auto rounded-full bg-[#36FF88]/10 border border-[#36FF88]/30 flex items-center justify-center text-[#36FF88] mb-4">
-              <Check className="w-7 h-7" />
+          <div className="max-w-sm w-full bg-[#0B0F0D] border border-[#36FF88]/40 rounded-2xl p-6 text-center shadow-2xl space-y-4">
+            <div className="w-12 h-12 mx-auto rounded-full bg-[#36FF88]/10 border border-[#36FF88]/30 flex items-center justify-center text-[#36FF88]">
+              <RefreshCw className="w-6 h-6 animate-spin" />
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">SEU BIOSITE ESTÁ PRONTO ✓</h3>
-            <p className="text-xs text-[#87938B] leading-relaxed mb-6">
-              O arquivo HTML do biosite <strong className="text-white">"{downloadSuccessModal}"</strong> foi baixado com sucesso. Ele é 100% estático, leve e independente, pronto para publicar em qualquer hospedagem!
+            <h4 className="text-sm font-bold text-white tracking-wider font-mono">
+              {downloadProgress.message}
+            </h4>
+            <p className="text-[11px] text-[#87938B]">
+              Organizando index.html na raiz e otimizando arquivos estáticos...
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Success Modal when downloaded */}
+      {downloadSuccessName && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
+          <div className="max-w-md w-full bg-[#0B0F0D] border border-[#36FF88]/40 rounded-2xl p-6 sm:p-8 text-center shadow-2xl space-y-4">
+            <div className="w-16 h-16 mx-auto rounded-full bg-[#36FF88]/10 border border-[#36FF88]/30 flex items-center justify-center text-[#36FF88] shadow-[0_0_25px_rgba(54,255,136,0.3)]">
+              <Check className="w-8 h-8" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-1">ZIP PRONTO PARA PUBLICAR!</h3>
+            <p className="text-xs text-[#87938B] leading-relaxed">
+              O arquivo <strong className="text-white">"{downloadSuccessName}.zip"</strong> foi baixado com sucesso.
+            </p>
+
+            <div className="bg-[#111713] border border-[#1e2a22] rounded-xl p-4 text-left space-y-2 text-xs">
+              <div className="font-bold text-[#36FF88] flex items-center gap-1.5">
+                <span>🚀 Pronto para Vercel & Hospedagem Estática</span>
+              </div>
+              <ul className="text-[11px] text-[#87938B] space-y-1 list-disc list-inside">
+                <li><strong className="text-white">index.html</strong> posicionado diretamente na raiz do ZIP.</li>
+                <li>Nenhum comando ou compilação necessária (100% estático).</li>
+                <li>Basta arrastar para a Vercel, Netlify ou servidor web!</li>
+              </ul>
+            </div>
+
             <button
-              onClick={() => setDownloadSuccessModal(null)}
-              className="w-full py-2.5 bg-[#36FF88] hover:bg-[#00E86B] text-[#050706] font-bold text-xs rounded-xl transition cursor-pointer"
+              onClick={() => setDownloadSuccessName(null)}
+              className="w-full py-3 bg-[#36FF88] hover:bg-[#00E86B] text-[#050706] font-extrabold text-xs rounded-xl shadow-[0_0_15px_rgba(54,255,136,0.25)] transition cursor-pointer"
             >
-              FECHAR
+              FECHAR E CONTINUAR
             </button>
           </div>
         </div>

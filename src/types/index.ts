@@ -98,15 +98,18 @@ export interface BioTemplate {
 
 export interface BioProject {
   id: string;
+  projectId?: string;
   ownerUid: string;
   templateId: string;
   templateVersion: number;
   templateName: string;
   nicheId: string;
   name: string;
+  projectName?: string;
   values: Record<string, any>;
   theme?: Record<string, string>;
   assets?: Record<string, string>;
+  links?: Record<string, string>;
   createdAt: any;
   updatedAt: any;
 }

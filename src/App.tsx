@@ -205,18 +205,22 @@ function MainApp() {
   const handleSaveProject = async (projectData: Partial<BioProject>): Promise<BioProject> => {
     if (!db || !currentUser) throw new Error('Usuário não autenticado');
 
-    const projectId = projectData.id || `proj-${Date.now()}`;
+    const projectId = projectData.id || projectData.projectId || `proj-${Date.now()}`;
+    const projectName = projectData.projectName || projectData.name || 'Meu BioSite';
     const fullProject: BioProject = {
       id: projectId,
+      projectId: projectId,
       ownerUid: currentUser.uid,
       templateId: projectData.templateId || activeEditingTemplate?.templateId || '',
       templateVersion: projectData.templateVersion || 1,
       templateName: projectData.templateName || activeEditingTemplate?.name || 'BioSite',
       nicheId: projectData.nicheId || activeEditingTemplate?.nicheId || '',
-      name: projectData.name || 'Meu BioSite',
+      name: projectName,
+      projectName: projectName,
       values: projectData.values || {},
       theme: projectData.theme || {},
       assets: projectData.assets || {},
+      links: projectData.links || {},
       createdAt: projectData.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
